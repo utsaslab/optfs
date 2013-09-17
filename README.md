@@ -55,8 +55,11 @@ module can be found at fs/ext4bf/.
 
 #### Caveats 
 
-This version of the code provides only *eventual durability*: every
-fsync() call behaves likes an osync(). 
+This version of the code provides only *eventual durability*: every OptFS
+(ext4bf) fsync() call behaves likes an osync(). Therefore, any unmodified
+application running on ext4bf behaves as if every fsync() was replaced by an
+osync(). This allows you to take any application and run it on OptFS to
+determine the maximum performance you could potentially get. 
 
 Note that the code is provided "as is": compiling and running the code will
 require some tweaking based on the operating system environment. The file
