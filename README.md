@@ -7,10 +7,10 @@ order of magnitude. OptFS provides strong consistency, equivalent to data
 journaling mode of ext4.*
 
  For technical details, please read the [SOSP
- 2013](http://sigops.org/sosp/sosp13//) paper [Optimistic Crash
+ 2013](http://sigops.org/sosp/sosp13/) paper [Optimistic Crash
  Consistency](http://www.cs.wisc.edu/adsl/Publications/optfs-sosp13.pdf).
  Please [cite this
- publication](http://research.cs.wisc.edu/adsl/Publications/optfs-sosp13.pdf)
+ publication](http://research.cs.wisc.edu/adsl/Publications/optfs-sosp13.bib)
  if you use this work.
 
 Please feel free to [contact me](http://cs.wisc.edu/~vijayc) with
@@ -32,7 +32,7 @@ module can be found at fs/ext4bf/.
 
 <pre>make -j4 && make modules && make modules_install && make install</pre>
 
-* Fix up grub <pre>(/etc/default/grub)</pre> as required.
+* Fix up grub (/etc/default/grub) as required.
 
 #### Compiling and loading the OptFS module
 * Create /mnt/mydisk
@@ -56,7 +56,7 @@ module can be found at fs/ext4bf/.
 #### Caveats 
 
 This version of the code provides only *eventual durability*: every
-<pre>fsync()</pre> call behaves likes an <pre>osync()</pre>. 
+fsync() call behaves likes an osync(). 
 
 Note that the code is provided "as is": compiling and running the code will
 require some tweaking based on the operating system environment. The file
