@@ -40,8 +40,8 @@ module can be found at fs/ext4bf/.
 * Navigate to fs/ext4bf folder.
 
 * Make the file system (on /dev/sdb1) using:
-
-<pre>sh mk-big.sh</pre>
+    
+    <pre>sh mk-big.sh</pre>
 
    Warning: this creates a file system on /dev/sdb1, erasing all previous
    content. The drive has to be big enough to contain a 16 GB journal.
@@ -52,6 +52,18 @@ module can be found at fs/ext4bf/.
 
    This will result in an OptFS file system on /dev/sdb1, mounted at
    /mnt/mydisk.
+
+#### Notes 
+
+OptFS is built upon asynchronous durability notifications from the disk. Since
+disks do not provide such functionality yet, we <b>emulate</b> such
+notifications using durability timeouts in OptFS. This is basically a
+guarantee from the disk that it will not cache a write request for longer than
+a certain amount of time. This is set to be 30 seconds in OptFS.
+
+This needs to be tuned for the disk that OptFS runs on. If the disk does cache
+writes for more time than the OptFS setting, OptFS will not be able to provide
+consistency in the case of a crash. 
 
 #### Caveats 
 
@@ -65,3 +77,4 @@ Note that the code is provided "as is": compiling and running the code will
 require some tweaking based on the operating system environment. The file
 system is only meant as a prototype and not meant for production use in any
 way.
+
