@@ -29,8 +29,8 @@ module can be found at fs/ext4bf/.
 
 #### Compiling and installing the kernel
 * From the root kernel folder (where this README is found), do as root:
-
-<pre>make -j4 && make modules && make modules_install && make install</pre>
+    
+    <pre>make -j4 && make modules && make modules_install && make install</pre>
 
 * Fix up grub (/etc/default/grub) as required.
 
@@ -62,8 +62,8 @@ guarantee from the disk that it will not cache a write request for longer than
 a certain amount of time. This is set to be 30 seconds in OptFS.
 
 This needs to be tuned for the disk that OptFS runs on. If the disk does cache
-writes for more time than the OptFS setting, OptFS will not be able to provide
-consistency in the case of a crash. 
+writes for more time than the OptFS setting, OptFS will not be able to
+guarantee consistency in the case of a crash. 
 
 #### Caveats 
 
