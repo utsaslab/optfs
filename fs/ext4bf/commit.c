@@ -381,6 +381,8 @@ void jbdbf_journal_commit_transaction(journal_t *journal)
 	commit_transaction = journal->j_running_transaction;
 	J_ASSERT(commit_transaction->t_state == T_RUNNING);
 
+    int durable_commit = commit_transaction->t_durable_commit;
+
     mutex_lock(&commit_transaction->t_dirty_data_mutex);
 	jbd_debug(1, "JBD2: starting commit of transaction %d\n",
 			commit_transaction->t_tid);
@@ -494,7 +496,7 @@ void jbdbf_journal_commit_transaction(journal_t *journal)
         struct buffer_head *bh = jh2bhbf(jh);
         if (!bh) break;
         
-        if (bh->b_blocktype == 1){
+        if (bh->b_blocktype == B_BLOCKTYPE_DATA){
             /* Process the data buffer. */
             get_bh(bh);
             set_buffer_jwrite(bh);
@@ -509,14 +511,14 @@ void jbdbf_journal_commit_transaction(journal_t *journal)
             if (data_batch_count) {
                 __flush_data_batch(&data_batch_count);
             }
-            if (bh->b_blocktype !=1)
+            if (bh->b_blocktype != B_BLOCKTYPE_DATA)
                 jbdbf_journal_refile_buffer(journal, jh);
             break;
         }
         jh_next = jh->b_tnext;
         /* Don't refile journal heads which are type 1. We will check for them
          * later.*/
-        if (bh->b_blocktype !=1)
+        if (bh->b_blocktype != B_BLOCKTYPE_DATA)
             jbdbf_journal_refile_buffer(journal, jh);
         jh = jh_next;
     }
@@ -650,8 +652,8 @@ void jbdbf_journal_commit_transaction(journal_t *journal)
                     tag_flag |= JBD2_FLAG_SAME_UUID;
 
                 tag = (journal_block_tag_t *) tagp;
-                write_tag_block(tag_bytes, tag, jh2bhbf(jh)->b_blocknr,
-                        crc32_data_sum, 1);
+                write_tag_block(tag_bytes, tag, entry->b_blocknr,
+                        entry->crc32_data_sum, T_BLOCKTYPE_NEWLYAPPENDEDDATA);
                 tag->t_flags = cpu_to_be32(tag_flag);
                 tagp += tag_bytes;
                 space_left -= tag_bytes;
@@ -725,7 +727,10 @@ void jbdbf_journal_commit_transaction(journal_t *journal)
 			tag_flag |= JBD2_FLAG_SAME_UUID;
 
         tag = (journal_block_tag_t *) tagp;
-        write_tag_block(tag_bytes, tag, jh2bhbf(jh)->b_blocknr, 0, 0);
+		if (jh2bhbf(jh)->b_blocktype == B_BLOCKTYPE_DATA)
+			write_tag_block(tag_bytes, tag, jh2bhbf(jh)->b_blocknr, 0, T_BLOCKTYPE_OVERWRITTENDATA);
+		else
+			write_tag_block(tag_bytes, tag, jh2bhbf(jh)->b_blocknr, 0, T_BLOCKTYPE_NOTDATA);
         tag->t_flags = cpu_to_be32(tag_flag);
         tagp += tag_bytes;
         space_left -= tag_bytes;
@@ -971,9 +976,12 @@ wait_for_iobuf:
 	}
 	if (cbh)
 		err = journal_wait_on_commit_record(journal, cbh);
-	if (JBD2_HAS_INCOMPAT_FEATURE(journal,
+
+	if ((JBD2_HAS_INCOMPAT_FEATURE(journal,
 				      JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT) &&
-	    journal->j_flags & JBD2_BARRIER) {
+	    journal->j_flags & JBD2_BARRIER)
+	    || (durable_commit == 1))
+	{
 		blkdev_issue_flush(journal->j_dev, GFP_KERNEL, NULL);
 	}
 
@@ -997,7 +1005,12 @@ wait_for_iobuf:
 	J_ASSERT(commit_transaction->t_log_list == NULL);
 
     /* ext4bf: set checkpoint time for the whole transaction. */
-    commit_transaction->t_checkpoint_time = jiffies + msecs_to_jiffies(JBDBF_CHECKPOINT_INTERVAL); 
+    if (durable_commit == 1) {
+        commit_transaction->t_checkpoint_time = jiffies; 
+    } else {
+        commit_transaction->t_checkpoint_time = jiffies
+            + msecs_to_jiffies(JBDBF_CHECKPOINT_INTERVAL); 
+    }
 
 restart_loop:
 	/*
@@ -1025,9 +1038,11 @@ restart_loop:
         /* ext4bf: tagging the block so that it will not be written by the VM
          * subsystem. The VM subsystem will write this out after the checkpoint
          * time embedded in the block. */
-        bh->b_blocktype = 3;
-        bh->b_checkpoint_time = jiffies + msecs_to_jiffies(JBDBF_CHECKPOINT_INTERVAL); 
-        bh->b_delayed_write = 1;
+        if (durable_commit != 1) {
+            bh->b_blocktype = B_BLOCKTYPE_DURABLECHECKPOINT;
+            bh->b_checkpoint_time = jiffies + msecs_to_jiffies(JBDBF_CHECKPOINT_INTERVAL); 
+            bh->b_delayed_write = 1;
+        }
 
 		/*
 		 * If there is undo-protected committed data against

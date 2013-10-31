@@ -1596,6 +1596,10 @@ struct file_operations {
 	int (*flush) (struct file *, fl_owner_t id);
 	int (*release) (struct inode *, struct file *);
 	int (*fsync) (struct file *, loff_t, loff_t, int datasync);
+	/* Adding osync and dsync for OptFS. */
+	int (*osync) (struct file *, loff_t, loff_t);
+	int (*dsync) (struct file *, loff_t, loff_t);
+	/* */
 	int (*aio_fsync) (struct kiocb *, int datasync);
 	int (*fasync) (int, struct file *, int);
 	int (*lock) (struct file *, int, struct file_lock *);

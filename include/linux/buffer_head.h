@@ -74,6 +74,9 @@ struct buffer_head {
 	atomic_t b_count;		/* users using this buffer_head */
 
 	/* vijayc: adding a block type to distinguish the data writes. */
+#define B_BLOCKTYPE_NORMAL 0
+#define B_BLOCKTYPE_DATA 1
+#define B_BLOCKTYPE_DURABLECHECKPOINT 3
 	unsigned int b_blocktype;
 	unsigned long b_checkpoint_time;
 	int          b_delayed_write;

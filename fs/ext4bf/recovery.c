@@ -245,7 +245,7 @@ static int count_tags(journal_t *journal, struct buffer_head *bh)
 	while ((tagp - bh->b_data + tag_bytes) <= size) {
 		tag = (journal_block_tag_t *) tagp;
         
-		if(read_tag_type(tag_bytes, tag) != 2)
+		if(read_tag_type(tag_bytes, tag) != T_BLOCKTYPE_NEWLYAPPENDEDDATA)
 			nr++;
 		tagp += tag_bytes;
 		if (!(tag->t_flags & cpu_to_be32(JBD2_FLAG_SAME_UUID)))
@@ -341,7 +341,7 @@ static int read_and_verify_checksums(journal_t *journal, struct buffer_head *bh,
         jbd_debug(6, "EXT4BF: reading tag block %llu, checksum %llu type %llu\n",
                 blocknr, data_checksum, read_tag_type(tag_bytes, tag)); 
 
-        if (blocktype == 2) {
+        if (blocktype == T_BLOCKTYPE_NEWLYAPPENDEDDATA) {
 			jbd_debug(6, "EXT4BF: trying to read and verify the block checksum");
             err = dread(&obh, journal, blocknr);
             if (err) {
@@ -365,7 +365,7 @@ static int read_and_verify_checksums(journal_t *journal, struct buffer_head *bh,
                     chksum_err = 1;
                 }
             }
-        } else if (blocktype == 3) {
+        } else if (blocktype == T_BLOCKTYPE_OVERWRITTENDATA) {
         	jbd_debug(6, "EXT4BF: Found overwritten data block %d, removing it from wrong-checksums list\n");
         	delete_from_mismatched_blocks(dc_object, blocknr);
         }
@@ -677,7 +677,7 @@ static int do_one_pass(journal_t *journal,
 				tag = (journal_block_tag_t *) tagp;
 				flags = be32_to_cpu(tag->t_flags);
 
-				if(read_tag_type(tag_bytes, tag) == 2)
+				if(read_tag_type(tag_bytes, tag) == T_BLOCKTYPE_NEWLYAPPENDEDDATA)
 					goto skip_write;
 
 

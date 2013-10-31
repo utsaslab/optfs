@@ -68,6 +68,7 @@ jbdbf_get_transaction(journal_t *journal, transaction_bf_t *transaction)
 	INIT_LIST_HEAD(&transaction->t_private_list);
 	INIT_LIST_HEAD(&transaction->t_data_tag_list);
 	transaction->t_num_dirty_blocks = 0;
+	transaction->t_durable_commit = 0;
 
 	/* Set up the commit timer for the new transaction. */
 	journal->j_commit_timer.expires = round_jiffies_up(transaction->t_expires);
@@ -1231,7 +1232,7 @@ static void write_out_dirty_blocks(journal_t *journal, transaction_bf_t *commit_
         struct buffer_head *bh = jh2bhbf(jh);
         if (!bh) break;
         jbdbf_lock_bh_state(bh);
-        if (bh->b_blocktype == 1){
+        if (bh->b_blocktype == B_BLOCKTYPE_DATA){
             jbd_debug(6, "got block %lu in forget list\n", bh->b_blocknr);
             /* Process the data buffer. */
             get_bh(bh);
@@ -1571,14 +1572,23 @@ int jbdbf_journal_stop(handle_t *handle)
 
 		jbd_debug(2, "transaction too old, requesting commit for "
 					"handle %p\n", handle);
-		/* This is non-blocking */
-		jbdbf_log_start_commit(journal, transaction->t_tid);
+
+        /* Handle commit differently if the handle has durable
+         * commit (dsync) enabled. */
+        if (handle->h_durable_commit) 
+            jbdbf_log_start_optfs_commit(journal,
+                    transaction->t_tid, DSYNC_COMMIT);
+        else {
+            /* This is non-blocking */
+            jbdbf_log_start_commit(journal, transaction->t_tid);
+        }
 
 		/*
 		 * Special case: JBD2_SYNC synchronous updates require us
 		 * to wait for the commit to complete.
 		 */
-		if (handle->h_sync && !(current->flags & PF_MEMALLOC))
+		if ((handle->h_sync && !(current->flags & PF_MEMALLOC))
+		    || handle->h_durable_commit)
 			wait_for_commit = 1;
 	}
 
@@ -1595,8 +1605,9 @@ int jbdbf_journal_stop(handle_t *handle)
 			wake_up(&journal->j_wait_transaction_locked);
 	}
 
-	if (wait_for_commit)
+	if (wait_for_commit) {
 		err = jbdbf_log_wait_commit(journal, tid);
+	}
 
 	lock_map_release(&handle->h_lockdep_map);
 
@@ -1622,6 +1633,30 @@ int jbdbf_journal_force_commit(journal_t *journal)
 		ret = PTR_ERR(handle);
 	} else {
 		handle->h_sync = 1;
+		ret = jbdbf_journal_stop(handle);
+	}
+	return ret;
+}
+
+/**
+ * int jbdbf_journal_force_dsync_commit() - force any uncommitted transactions
+ * @journal: journal to force
+ *
+ * For synchronous operations: force any uncommitted transactions
+ * to disk.  May seem kludgy, but it reuses all the handle batching
+ * code in a very simple manner.
+ */
+int jbdbf_journal_force_dsync_commit(journal_t *journal)
+{
+	handle_t *handle;
+	int ret;
+
+	handle = jbdbf_journal_start(journal, 1);
+	if (IS_ERR(handle)) {
+		ret = PTR_ERR(handle);
+	} else {
+		handle->h_sync = 1;
+		handle->h_durable_commit = 1;
 		ret = jbdbf_journal_stop(handle);
 	}
 	return ret;

@@ -32,9 +32,8 @@
 #include "ext4bf.h"
 #include "ext4bf_jbdbf.h"
 
-/*
-#include <trace/events/ext4bf.h>
-*/
+#define OSYNC_COMMIT 0
+#define DSYNC_COMMIT 1
 
 static void dump_completed_IO(struct inode * inode)
 {
@@ -216,10 +215,6 @@ int ext4bf_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 
 	J_ASSERT(ext4bf_journal_current_handle() == NULL);
 
-    /*
-	trace_ext4_sync_file_enter(file, datasync);
-	*/
-
 	ret = filemap_write_and_wait_range(inode->i_mapping, start, end);
 	if (ret)
 		return ret;
@@ -268,8 +263,127 @@ int ext4bf_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 		blkdev_issue_flush(inode->i_sb->s_bdev, GFP_KERNEL, NULL);
  out:
 	mutex_unlock(&inode->i_mutex);
+	return ret;
+}
+
+int ext4bf_osync_file(struct file *file, loff_t start, loff_t end)
+{
+	struct inode *inode = file->f_mapping->host;
+	struct ext4bf_inode_info *ei = EXT4_I(inode);
+	journal_t *journal = EXT4_SB(inode->i_sb)->s_journal;
+	int ret;
+	tid_t commit_tid;
+	bool needs_barrier = false;
+    int datasync = 0;
+
+	J_ASSERT(ext4bf_journal_current_handle() == NULL);
+
+	ret = filemap_write_and_wait_range(inode->i_mapping, start, end);
+	if (ret)
+		return ret;
+	mutex_lock(&inode->i_mutex);
+
+	if (inode->i_sb->s_flags & MS_RDONLY)
+		goto out;
+
+	ret = ext4bf_flush_completed_IO(inode);
+	if (ret < 0)
+		goto out;
+
+	if (!journal) {
+		ret = __sync_inode(inode, datasync);
+		if (!ret && !list_empty(&inode->i_dentry))
+			ret = ext4bf_sync_parent(inode);
+		goto out;
+	}
+
 	/*
-	trace_ext4_sync_file_exit(inode, ret);
-	*/
+	 * data=writeback,ordered:
+	 *  The caller's filemap_fdatawrite()/wait will sync the data.
+	 *  Metadata is in the journal, we wait for proper transaction to
+	 *  commit here.
+	 *
+	 * data=journal:
+	 *  filemap_fdatawrite won't do anything (the buffers are clean).
+	 *  ext4bf_force_commit will write the file data into the journal and
+	 *  will wait on that.
+	 *  filemap_fdatawait() will encounter a ton of newly-dirtied pages
+	 *  (they were dirtied by commit).  But that's OK - the blocks are
+	 *  safe in-journal, which is all fsync() needs to ensure.
+	 */
+	if (ext4bf_should_journal_data(inode)) {
+		ret = ext4bf_force_commit(inode->i_sb);
+		goto out;
+	}
+
+	commit_tid = ei->i_sync_tid;
+	jbdbf_log_start_optfs_commit(journal, commit_tid, OSYNC_COMMIT);
+	ret = jbdbf_log_wait_commit(journal, commit_tid);
+ out:
+	mutex_unlock(&inode->i_mutex);
+	return ret;
+}
+
+int ext4bf_dsync_file(struct file *file, loff_t start, loff_t end)
+{
+	struct inode *inode = file->f_mapping->host;
+	struct ext4bf_inode_info *ei = EXT4_I(inode);
+	journal_t *journal = EXT4_SB(inode->i_sb)->s_journal;
+	int ret;
+	tid_t commit_tid;
+	bool needs_barrier = false;
+    int datasync = 0;
+
+	J_ASSERT(ext4bf_journal_current_handle() == NULL);
+    
+    ext4bf_debug("Calling dsync() for inode %lu\n", inode->i_ino);
+
+	ret = filemap_write_and_wait_range(inode->i_mapping, start, end);
+	if (ret)
+		return ret;
+	mutex_lock(&inode->i_mutex);
+
+	if (inode->i_sb->s_flags & MS_RDONLY)
+		goto out;
+
+	ret = ext4bf_flush_completed_IO(inode);
+	if (ret < 0)
+		goto out;
+
+	if (!journal) {
+		ret = __sync_inode(inode, datasync);
+		if (!ret && !list_empty(&inode->i_dentry))
+			ret = ext4bf_sync_parent(inode);
+		goto out;
+	}
+
+	/*
+	 * data=writeback,ordered:
+	 *  The caller's filemap_fdatawrite()/wait will sync the data.
+	 *  Metadata is in the journal, we wait for proper transaction to
+	 *  commit here.
+	 *
+	 * data=journal:
+	 *  filemap_fdatawrite won't do anything (the buffers are clean).
+	 *  ext4bf_force_commit will write the file data into the journal and
+	 *  will wait on that.
+	 *  filemap_fdatawait() will encounter a ton of newly-dirtied pages
+	 *  (they were dirtied by commit).  But that's OK - the blocks are
+	 *  safe in-journal, which is all fsync() needs to ensure.
+	 */
+	if (ext4bf_should_journal_data(inode)) {
+		ret = ext4bf_force_dsync_commit(inode->i_sb);
+		goto out;
+	}
+
+	commit_tid = datasync ? ei->i_datasync_tid : ei->i_sync_tid;
+	jbdbf_log_start_optfs_commit(journal, commit_tid, DSYNC_COMMIT);
+	ret = jbdbf_log_wait_commit(journal, commit_tid);
+
+ out:
+	/* Issue a flush because this is dsync. */
+	// blkdev_issue_flush(inode->i_sb->s_bdev, GFP_KERNEL, NULL);
+
+	mutex_unlock(&inode->i_mutex);
 	return ret;
 }

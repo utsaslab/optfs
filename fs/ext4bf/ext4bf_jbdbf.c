@@ -113,7 +113,7 @@ int __ext4bf_handle_dirty_metadata(const char *where, unsigned int line,
 
 #ifdef DCHECKSUM
         /* ext4bf: handle cases where it is a data block. */
-        if (bh && bh->b_blocktype == 1) {
+        if (bh && bh->b_blocktype == B_BLOCKTYPE_DATA) {
 #endif
 #ifdef PARTJ
             if (!buffer_new(bh))

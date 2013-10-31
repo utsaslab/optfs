@@ -819,7 +819,7 @@ static void walk_and_print_buffers(tid_t tid,
         }
         ext4bf_debug("ext4bf: marking block %lu as data\n", bh->b_blocknr);
         ext4bf_debug("ext4bf: block type already present: %d\n", bh->b_blocktype);
-        bh->b_blocktype = 1;
+        bh->b_blocktype = B_BLOCKTYPE_DATA;
     }
 }
 /* */
@@ -925,7 +925,7 @@ static int write_end_fn(handle_t *handle, struct buffer_head *bh)
 	set_buffer_uptodate(bh);
 	jbd_debug(6, "EXT4BF: data checksum at write_end: %u\n", jbdbf_checksum_data(0, bh));
 	jbd_debug(6, "EXT4BF: testing whether buffer is new: %d\n", buffer_new(bh));
-    if (bh->b_blocktype == 1) {
+    if (bh->b_blocktype == B_BLOCKTYPE_DATA) {
 #endif
 #ifdef PARTJ
         if (buffer_new(bh)) {

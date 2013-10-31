@@ -50,9 +50,9 @@
  */
 #define JBD2_DEFAULT_MAX_COMMIT_AGE 5
 
-#define jbd_debug(f, a...)	/**/
+//#define jbd_debug(f, a...)	/**/
 
-/*
+
 #define jbd_debug(n, f, a...)						\
 	do {								\
 		if ((n) <= 10) {			\
@@ -61,7 +61,7 @@
 			printk (f, ## a);				\
 		}							\
 	} while (0)
-*/
+
 
 #define CONFIG_JBD2_DEBUG
 #ifdef CONFIG_JBD2_DEBUG
@@ -73,11 +73,13 @@
 #define JBD2_EXPENSIVE_CHECKING
 extern u8 jbdbf_journal_enable_debug;
 
-// #define jbd_debug(f, a...)	/**/
 #endif
 
 extern void *jbdbf_alloc(size_t size, gfp_t flags);
 extern void jbdbf_free(void *ptr, size_t size);
+
+#define OSYNC_COMMIT 0
+#define DSYNC_COMMIT 1
 
 #define JBD2_MIN_JOURNAL_BLOCKS 1024
 
@@ -189,6 +191,10 @@ typedef struct journal_block_tag_s
 	unsigned char   t_chksum_size;
 	unsigned char 	t_padding[2];
 	__be32 		t_chksum[JBD2_CHECKSUM_BYTES];
+
+#define T_BLOCKTYPE_NOTDATA 0
+#define T_BLOCKTYPE_NEWLYAPPENDEDDATA 2
+#define T_BLOCKTYPE_OVERWRITTENDATA 3
 	__be32         t_blocktype;
 } journal_block_tag_t;
 
@@ -437,6 +443,9 @@ struct jbdbf_journal_handle
 	 * (counts only buffers dirtied when !h_cowing) */
 	unsigned int	h_user_credits:14;
 
+    /* vijayc: indicating whether this handle is dsync, for
+     * force commits. */
+    int         h_durable_commit;
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map	h_lockdep_map;
@@ -649,6 +658,10 @@ struct transaction_bf_s
 	/* Spin lock to protect the dirty data list for each transaction. */
 	struct semaphore  t_dirty_data_mutex;
 
+    /*
+	 * Transaction commit type. (0=osync, 1=dsync).
+	 */
+	int			t_durable_commit;
 };
 
 struct transaction_run_stats_s {
@@ -1152,6 +1165,7 @@ extern void	   jbdbf_journal_ack_err    (journal_t *);
 extern int	   jbdbf_journal_clear_err  (journal_t *);
 extern int	   jbdbf_journal_bmap(journal_t *, unsigned long, unsigned long long *);
 extern int	   jbdbf_journal_force_commit(journal_t *);
+extern int	   jbdbf_journal_force_dsync_commit(journal_t *);
 extern int	   jbdbf_journal_file_inode(handle_t *handle, struct jbdbf_inode *inode);
 extern int	   jbdbf_journal_begin_ordered_truncate(journal_t *journal,
 				struct jbdbf_inode *inode, loff_t new_size);
@@ -1236,7 +1250,8 @@ extern void	jbdbf_journal_switch_revoke_table(journal_t *journal);
 
 int __jbdbf_log_space_left(journal_t *); /* Called with journal locked */
 int jbdbf_log_start_commit(journal_t *journal, tid_t tid);
-int __jbdbf_log_start_commit(journal_t *journal, tid_t tid);
+int jbdbf_log_start_optfs_commit(journal_t *journal, tid_t tid, int dsync);
+int __jbdbf_log_start_commit(journal_t *journal, tid_t tid, int dsync);
 int jbdbf_journal_start_commit(journal_t *journal, tid_t *tid);
 int jbdbf_journal_force_commit_nested(journal_t *journal);
 int jbdbf_log_wait_commit(journal_t *journal, tid_t tid);

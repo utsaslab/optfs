@@ -265,7 +265,7 @@ __flush_batch(journal_t *journal, int *batch_count)
 	blk_start_plug(&plug);
 	for (i = 0; i < *batch_count; i++) {
 		struct buffer_head *bh = journal->j_chkpt_bhs[i];
-		bh->b_blocktype = 0;
+		bh->b_blocktype = B_BLOCKTYPE_NORMAL;
 		bh->b_delayed_write = 0;
 		write_dirty_buffer(journal->j_chkpt_bhs[i], WRITE_SYNC);
     }

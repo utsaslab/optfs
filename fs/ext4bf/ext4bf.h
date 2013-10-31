@@ -1821,6 +1821,10 @@ extern void ext4bf_htree_free_dir_info(struct dir_private_info *p);
 extern int ext4bf_sync_file(struct file *, loff_t, loff_t, int);
 extern int ext4bf_flush_completed_IO(struct inode *);
 
+/* vijayc: for the osync() and dsync() system calls. */
+extern int ext4bf_osync_file(struct file *, loff_t, loff_t);
+extern int ext4bf_dsync_file(struct file *, loff_t, loff_t);
+
 /* hash.c */
 extern int ext4bffs_dirhash(const char *name, int len, struct
 			  dx_hash_info *hinfo);

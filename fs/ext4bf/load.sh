@@ -1,5 +1,6 @@
 umount /mnt/mydisk
 modprobe -r ext4bf
+#cd ..
 make
 make modules_install
 echo "Loading module"

@@ -692,8 +692,14 @@ __SC_COMP(__NR_process_vm_readv, sys_process_vm_readv, \
 __SC_COMP(__NR_process_vm_writev, sys_process_vm_writev, \
           compat_sys_process_vm_writev)
 
+/* vijayc: Adding in the osync() and dsync() calls for OptFS. */
+#define __NR_osync 272
+__SYSCALL(__NR_osync, sys_osync)
+#define __NR_dsync 273
+__SYSCALL(__NR_dsync, sys_dsync)
+
 #undef __NR_syscalls
-#define __NR_syscalls 272
+#define __NR_syscalls 274
 
 /*
  * All syscalls below here should go away really,

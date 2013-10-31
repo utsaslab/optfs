@@ -686,7 +686,13 @@ __SYSCALL(307, sys_recvmmsg, 5)
 #define __NR_setns				308
 __SYSCALL(308, sys_setns, 2)
 
-#define __NR_syscall_count			309
+/* vijayc: Adding in osync() and dsync() calls for OptFS. */
+#define __NR_osync 				 309
+__SYSCALL( 309, sys_osync, 1)
+#define __NR_dsync 				 310
+__SYSCALL( 310, sys_dsync, 1)
+
+#define __NR_syscall_count			311
 
 /*
  * sysxtensa syscall handler

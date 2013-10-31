@@ -198,6 +198,38 @@ static int do_fsync(unsigned int fd, int datasync)
 	return ret;
 }
 
+static int do_dsync(unsigned int fd)
+{
+	struct file *file;
+	int ret = -EBADF;
+
+	file = fget(fd);
+    if (file) {
+        if (!file->f_op || !file->f_op->dsync)
+            ret =  -EINVAL;
+        else 
+            ret = file->f_op->dsync(file, 0, LLONG_MAX);
+		fput(file);
+	}
+	return ret;
+}
+
+static int do_osync(unsigned int fd)
+{
+	struct file *file;
+	int ret = -EBADF;
+
+	file = fget(fd);
+    if (file) {
+        if (!file->f_op || !file->f_op->osync)
+            ret =  -EINVAL;
+        else 
+            ret = file->f_op->osync(file, 0, LLONG_MAX);
+		fput(file);
+	}
+	return ret;
+}
+
 SYSCALL_DEFINE1(fsync, unsigned int, fd)
 {
 	return do_fsync(fd, 0);
@@ -206,6 +238,17 @@ SYSCALL_DEFINE1(fsync, unsigned int, fd)
 SYSCALL_DEFINE1(fdatasync, unsigned int, fd)
 {
 	return do_fsync(fd, 1);
+}
+
+/* vijayc: Adding the calls for osync() and dsync(). */
+SYSCALL_DEFINE1(osync, unsigned int, fd)
+{
+	return do_osync(fd);
+}
+
+SYSCALL_DEFINE1(dsync, unsigned int, fd)
+{
+	return do_dsync(fd);
 }
 
 /**

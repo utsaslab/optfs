@@ -687,6 +687,12 @@ __SYSCALL(__NR_process_vm_readv, sys_process_vm_readv)
 #define __NR_process_vm_writev			311
 __SYSCALL(__NR_process_vm_writev, sys_process_vm_writev)
 
+/* vijayc: Adding system calls for osync() and dysnc(). */
+#define __NR_osync				312
+__SYSCALL(__NR_osync, sys_osync)
+#define __NR_dsync				313
+__SYSCALL(__NR_dsync, sys_dsync)
+
 #ifndef __NO_STUBS
 #define __ARCH_WANT_OLD_READDIR
 #define __ARCH_WANT_OLD_STAT

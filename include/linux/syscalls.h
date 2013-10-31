@@ -391,6 +391,8 @@ asmlinkage long sys_pause(void);
 asmlinkage long sys_sync(void);
 asmlinkage long sys_fsync(unsigned int fd);
 asmlinkage long sys_fdatasync(unsigned int fd);
+asmlinkage long sys_osync(unsigned int fd);
+asmlinkage long sys_dsync(unsigned int fd);
 asmlinkage long sys_bdflush(int func, long data);
 asmlinkage long sys_mount(char __user *dev_name, char __user *dir_name,
 				char __user *type, unsigned long flags,

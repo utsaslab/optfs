@@ -85,6 +85,7 @@ EXPORT_SYMBOL(jbdbf_journal_ack_err);
 EXPORT_SYMBOL(jbdbf_journal_clear_err);
 EXPORT_SYMBOL(jbdbf_log_wait_commit);
 EXPORT_SYMBOL(jbdbf_log_start_commit);
+EXPORT_SYMBOL(jbdbf_log_start_optfs_commit);
 EXPORT_SYMBOL(jbdbf_journal_start_commit);
 EXPORT_SYMBOL(jbdbf_journal_force_commit_nested);
 EXPORT_SYMBOL(jbdbf_journal_wipe);
@@ -92,6 +93,7 @@ EXPORT_SYMBOL(jbdbf_journal_blocks_per_page);
 EXPORT_SYMBOL(jbdbf_journal_invalidatepage);
 EXPORT_SYMBOL(jbdbf_journal_try_to_free_buffers);
 EXPORT_SYMBOL(jbdbf_journal_force_commit);
+EXPORT_SYMBOL(jbdbf_journal_force_dsync_commit);
 EXPORT_SYMBOL(jbdbf_journal_file_inode);
 EXPORT_SYMBOL(jbdbf_journal_init_jbd_inode);
 EXPORT_SYMBOL(jbdbf_journal_release_jbd_inode);
@@ -107,6 +109,8 @@ static void __journal_abort_soft (journal_t *journal, int errno);
 static int jbdbf_journal_create_slab(size_t slab_size);
 
 /* EXT4BF */
+#define OSYNC_COMMIT 0
+#define DSYNC_COMMIT 1
 
 struct timer_list ext4bf_writeout_timer;
 const int EXT4BF_WRITEOUT_TIME = 10000;
@@ -163,7 +167,7 @@ static void write_out_dirty_blocks(journal_t *journal)  {
         struct buffer_head *bh = jh2bhbf(jh);
         if (!bh) break;
         jbdbf_lock_bh_state(bh);
-        if (bh->b_blocktype == 1){
+        if (bh->b_blocktype == B_BLOCKTYPE_DATA){
             jbd_debug(6, "got block %lu in forget list\n", bh->b_blocknr);
             /* Process the data buffer. */
             get_bh(bh);
@@ -265,6 +269,7 @@ loop:
 		journal->j_commit_sequence, journal->j_commit_request);
 
 	if (journal->j_commit_sequence != journal->j_commit_request) {
+
 		jbd_debug(1, "OK, requests differ\n");
 		write_unlock(&journal->j_state_lock);
 		del_timer_sync(&journal->j_commit_timer);
@@ -610,7 +615,7 @@ int __jbdbf_log_space_left(journal_t *journal)
  * Called with j_state_lock locked for writing.
  * Returns true if a transaction commit was started.
  */
-int __jbdbf_log_start_commit(journal_t *journal, tid_t target)
+int __jbdbf_log_start_commit(journal_t *journal, tid_t target, int dsync)
 {
 	/*
 	 * The only transaction we can possibly wait upon is the
@@ -625,6 +630,12 @@ int __jbdbf_log_start_commit(journal_t *journal, tid_t target)
 		 */
 
 		journal->j_commit_request = target;
+        journal->j_running_transaction->t_durable_commit = dsync;
+
+        jbd_debug(6, "Setting tx %lu to dsync type %d\n",
+                journal->j_running_transaction->t_tid,
+                journal->j_running_transaction->t_durable_commit);
+
 		jbd_debug(1, "JBD2: requesting commit %d/%d\n",
 			  journal->j_commit_request,
 			  journal->j_commit_sequence);
@@ -642,12 +653,23 @@ int __jbdbf_log_start_commit(journal_t *journal, tid_t target)
 	return 0;
 }
 
+/* By default, fsync() behavior is equivalent to osync(). */
 int jbdbf_log_start_commit(journal_t *journal, tid_t tid)
 {
 	int ret;
 
 	write_lock(&journal->j_state_lock);
-	ret = __jbdbf_log_start_commit(journal, tid);
+	ret = __jbdbf_log_start_commit(journal, tid, OSYNC_COMMIT);
+	write_unlock(&journal->j_state_lock);
+	return ret;
+}
+
+int jbdbf_log_start_optfs_commit(journal_t *journal, tid_t tid, int dsync)
+{
+	int ret;
+
+	write_lock(&journal->j_state_lock);
+	ret = __jbdbf_log_start_commit(journal, tid, dsync);
 	write_unlock(&journal->j_state_lock);
 	return ret;
 }
@@ -702,7 +724,7 @@ int jbdbf_journal_start_commit(journal_t *journal, tid_t *ptid)
 	if (journal->j_running_transaction) {
 		tid_t tid = journal->j_running_transaction->t_tid;
 
-		__jbdbf_log_start_commit(journal, tid);
+		__jbdbf_log_start_commit(journal, tid, OSYNC_COMMIT);
 		/* There's a running transaction and we've just made sure
 		 * it's commit has been scheduled. */
 		if (ptid)
@@ -1729,7 +1751,7 @@ int jbdbf_journal_flush(journal_t *journal)
 	/* Force everything buffered to the log... */
 	if (journal->j_running_transaction) {
 		transaction = journal->j_running_transaction;
-		__jbdbf_log_start_commit(journal, transaction->t_tid);
+		__jbdbf_log_start_commit(journal, transaction->t_tid, DSYNC_COMMIT);
 	} else if (journal->j_committing_transaction)
 		transaction = journal->j_committing_transaction;
 
@@ -1845,7 +1867,7 @@ void __jbdbf_journal_abort_hard(journal_t *journal)
 	journal->j_flags |= JBD2_ABORT;
 	transaction = journal->j_running_transaction;
 	if (transaction)
-		__jbdbf_log_start_commit(journal, transaction->t_tid);
+		__jbdbf_log_start_commit(journal, transaction->t_tid, DSYNC_COMMIT);
 	write_unlock(&journal->j_state_lock);
 }
 

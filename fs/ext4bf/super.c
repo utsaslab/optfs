@@ -4369,6 +4369,27 @@ int ext4bf_force_commit(struct super_block *sb)
 	return ret;
 }
 
+/*
+ * dsync: force the running and committing transactions to commit,
+ * and wait on the commit.
+ */
+int ext4bf_force_dsync_commit(struct super_block *sb)
+{
+	journal_t *journal;
+	int ret = 0;
+
+	if (sb->s_flags & MS_RDONLY)
+		return 0;
+
+	journal = EXT4_SB(sb)->s_journal;
+	if (journal) {
+		vfs_check_frozen(sb, SB_FREEZE_TRANS);
+		ret = ext4bf_journal_force_dsync_commit(journal);
+	}
+
+	return ret;
+}
+
 static void ext4bf_write_super(struct super_block *sb)
 {
 	lock_super(sb);

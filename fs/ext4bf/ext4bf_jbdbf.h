@@ -238,6 +238,13 @@ static inline int ext4bf_journal_force_commit(journal_t *journal)
 	return 0;
 }
 
+static inline int ext4bf_journal_force_dsync_commit(journal_t *journal)
+{
+	if (journal)
+		return jbdbf_journal_force_dsync_commit(journal);
+	return 0;
+}
+
 static inline int ext4bf_jbdbf_file_inode(handle_t *handle, struct inode *inode)
 {
 	if (ext4bf_handle_valid(handle))
@@ -260,6 +267,7 @@ static inline void ext4bf_update_inode_fsync_trans(handle_t *handle,
 
 /* super.c */
 int ext4bf_force_commit(struct super_block *sb);
+int ext4bf_force_dsync_commit(struct super_block *sb);
 
 static inline int ext4bf_should_journal_data(struct inode *inode)
 {
