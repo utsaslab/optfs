@@ -29,13 +29,20 @@ module can be found at fs/ext4bf/.
 
 #### Compiling and installing the kernel
 * From the root kernel folder (where this README is found), do as root:
-    
+  
+    <pre>mv kernel.config .config</pre>
     <pre>make -j4 && make modules && make modules_install && make install</pre>
 
 * Fix up grub (/etc/default/grub) as required.
+* Reboot into installed kernel.
 
 #### Compiling and loading the OptFS module
-* Create /mnt/mydisk
+Note: you must have already compiled and rebooted into the OptFS kernel before the following steps.
+The following scripts run OptFS on a new disk partition (/dev/sdb1). If
+required, you need to attach a second disk (/dev/sdb) to the machine, and
+create a partition (/dev/sdb1) on the disk.
+
+*   <pre>mkdir /mnt/mydisk</pre>
 
 * Navigate to fs/ext4bf folder.
 
