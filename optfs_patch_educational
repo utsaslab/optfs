@@ -1,0 +1,3834 @@
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/arch/sh/boot/compressed/vmlinux.scr optfs/arch/sh/boot/compressed/vmlinux.scr
+--- linux-3.2/arch/sh/boot/compressed/vmlinux.scr	2012-01-04 17:55:44.000000000 -0600
++++ optfs/arch/sh/boot/compressed/vmlinux.scr	1969-12-31 18:00:00.000000000 -0600
+@@ -1,10 +0,0 @@
+-SECTIONS
+-{
+-  .rodata..compressed : {
+-	input_len = .;
+-	LONG(input_data_end - input_data) input_data = .;
+-	*(.data)
+-	output_len = . - 4;
+-	input_data_end = .;
+-	}
+-}
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/arch/sh/boot/romimage/vmlinux.scr optfs/arch/sh/boot/romimage/vmlinux.scr
+--- linux-3.2/arch/sh/boot/romimage/vmlinux.scr	2012-01-04 17:55:44.000000000 -0600
++++ optfs/arch/sh/boot/romimage/vmlinux.scr	1969-12-31 18:00:00.000000000 -0600
+@@ -1,8 +0,0 @@
+-SECTIONS
+-{
+-  .text : {
+-	zero_page_pos = .;
+-	*(.data)
+-	end_data = .;
+-	}
+-}
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/Documentation/dontdiff optfs/Documentation/dontdiff
+--- linux-3.2/Documentation/dontdiff	2013-10-30 18:19:52.870569679 -0500
++++ optfs/Documentation/dontdiff	2013-09-17 14:40:17.000000000 -0500
+@@ -260,5 +260,3 @@ wakeup.lds
+ zImage*
+ zconf.hash.c
+ zoffset.h
+-*.md
+-README
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/buffer.c optfs/fs/buffer.c
+--- linux-3.2/fs/buffer.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/buffer.c	2013-09-17 14:40:17.000000000 -0500
+@@ -1692,6 +1692,19 @@ static int __block_write_full_page(struc
+ 	do {
+ 		if (!buffer_mapped(bh))
+ 			continue;
++
++        /* vijayc: process checkpoint blocks. */
++        if (bh->b_delayed_write) {
++           /* If the time has not expired, redirty it. */
++            if (time_after_eq(jiffies, bh->b_checkpoint_time)) {
++                /* Remove the block type which prevents writes. */
++                bh->b_delayed_write = 0;
++            } else {
++                redirty_page_for_writepage(wbc, page);
++                continue;
++            }
++        }
++
+ 		/*
+ 		 * If it's a fully non-blocking write attempt and we cannot
+ 		 * lock the buffer then redirty the page.  Note that this can
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/balloc.c optfs/fs/ext4/balloc.c
+--- linux-3.2/fs/ext4/balloc.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/balloc.c	2013-10-30 19:41:33.658928370 -0500
+@@ -14,15 +14,13 @@
+ #include <linux/time.h>
+ #include <linux/capability.h>
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/quotaops.h>
+ #include <linux/buffer_head.h>
+ #include "ext4.h"
+ #include "ext4_jbd2.h"
+ #include "mballoc.h"
+ 
+-#include <trace/events/ext4.h>
+-
+ /*
+  * balloc.c contains the blocks allocation and deallocation routines
+  */
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/bitmap.c optfs/fs/ext4/bitmap.c
+--- linux-3.2/fs/ext4/bitmap.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/bitmap.c	2013-10-30 19:41:33.658928370 -0500
+@@ -8,7 +8,7 @@
+  */
+ 
+ #include <linux/buffer_head.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include "ext4.h"
+ 
+ #ifdef EXT4FS_DEBUG
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/checkpoint.c optfs/fs/ext4/checkpoint.c
+--- linux-3.2/fs/ext4/checkpoint.c	2013-10-30 18:30:36.464358233 -0500
++++ optfs/fs/ext4/checkpoint.c	2013-10-30 19:41:33.662928429 -0500
+@@ -19,11 +19,10 @@
+ 
+ #include <linux/time.h>
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/errno.h>
+ #include <linux/slab.h>
+ #include <linux/blkdev.h>
+-#include <trace/events/jbd2.h>
+ 
+ /*
+  * Unlink a buffer from a transaction checkpoint list.
+@@ -125,6 +124,7 @@ void __jbd2_log_wait_for_space(journal_t
+ 	/* assert_spin_locked(&journal->j_state_lock); */
+ 
+ 	nblocks = jbd_space_needed(journal);
++	jbd_debug(6, "EXT4BF: Entering free journal space while loop\n");
+ 	while (__jbd2_log_space_left(journal) < nblocks) {
+ 		if (journal->j_flags & JBD2_ABORT)
+ 			return;
+@@ -155,7 +155,10 @@ void __jbd2_log_wait_for_space(journal_t
+ 			spin_unlock(&journal->j_list_lock);
+ 			write_unlock(&journal->j_state_lock);
+ 			if (chkpt) {
++                journal->needs_checkpoint = 1;
++                jbd_debug(6, "EXT4BF: Checkpointing because we need space\n");
+ 				jbd2_log_do_checkpoint(journal);
++				journal->needs_checkpoint = 0;
+ 			} else if (jbd2_cleanup_journal_tail(journal) == 0) {
+ 				/* We were able to recover space; yay! */
+ 				;
+@@ -260,8 +263,12 @@ __flush_batch(journal_t *journal, int *b
+ 	struct blk_plug plug;
+ 
+ 	blk_start_plug(&plug);
+-	for (i = 0; i < *batch_count; i++)
++	for (i = 0; i < *batch_count; i++) {
++		struct buffer_head *bh = journal->j_chkpt_bhs[i];
++		bh->b_blocktype = 0;
++		bh->b_delayed_write = 0;
+ 		write_dirty_buffer(journal->j_chkpt_bhs[i], WRITE_SYNC);
++    }
+ 	blk_finish_plug(&plug);
+ 
+ 	for (i = 0; i < *batch_count; i++) {
+@@ -289,6 +296,11 @@ static int __process_buffer(journal_t *j
+ 	struct buffer_head *bh = jh2bh(jh);
+ 	int ret = 0;
+ 
++    if (bh->b_blocktype) 
++        jbd_debug(6, "EXT4BF: checkpointing data block %lu\n", bh->b_blocknr);
++
++    jbd_debug(6, "EXT4BF: processing checkpoint buffer %lu\n", bh->b_blocknr);
++
+ 	if (buffer_locked(bh)) {
+ 		get_bh(bh);
+ 		spin_unlock(&journal->j_list_lock);
+@@ -394,6 +406,22 @@ int jbd2_log_do_checkpoint(journal_t *jo
+ 	if (transaction->t_chp_stats.cs_chp_time == 0)
+ 		transaction->t_chp_stats.cs_chp_time = jiffies;
+ 	this_tid = transaction->t_tid;
++
++    /* ext4: If it is not safe to checkpoint the transaction, do not do so.
++     * We might need to change to safe mode soon.
++     * TODO: SAFE MODE.
++     * */
++    if (journal->needs_checkpoint) {
++        /* If the journal needs to be checkpointed for space reasons, allow
++         * that. But flush the device first for correctness. */
++        jbd_debug(6, "EXT4BF: Issuing pre-flush\n");
++        blkdev_issue_flush(journal->j_fs_dev, GFP_KERNEL, NULL);
++    }
++    else {
++        if (!time_after_eq(jiffies, transaction->t_checkpoint_time))
++            goto out;
++    }
++
+ restart:
+ 	/*
+ 	 * If someone cleaned up this transaction while we slept, we're
+@@ -450,7 +478,17 @@ restart:
+ 	}
+ out:
+ 	spin_unlock(&journal->j_list_lock);
+-	if (result < 0)
++
++    /* Issue a flush before cleaning up the tail if the journal needs space. */
++    if (journal->needs_checkpoint) {
++        /* If the journal needs to be checkpointed for space reasons, allow
++         * that. But flush the device first for correctness. */
++        jbd_debug(6, "EXT4BF: Issuing post-flush\n");
++        blkdev_issue_flush(journal->j_fs_dev, GFP_KERNEL, NULL);
++        journal->needs_checkpoint = 0;
++    }
++
++    if (result < 0)
+ 		jbd2_journal_abort(journal, result);
+ 	else
+ 		result = jbd2_cleanup_journal_tail(journal);
+@@ -719,7 +757,7 @@ int __jbd2_journal_remove_checkpoint(str
+ 		stats->cs_chp_time = jbd2_time_diff(stats->cs_chp_time,
+ 						    jiffies);
+ 	trace_jbd2_checkpoint_stats(journal->j_fs_dev->bd_dev,
+-				    transaction->t_tid, stats);
++    			    transaction->t_tid, stats);
+ 
+ 	__jbd2_journal_drop_transaction(journal, transaction);
+ 	kfree(transaction);
+@@ -750,6 +788,8 @@ void __jbd2_journal_insert_checkpoint(st
+ 	/* Get reference for checkpointing transaction */
+ 	jbd2_journal_grab_journal_head(jh2bh(jh));
+ 	jh->b_cp_transaction = transaction;
++	
++	jbd_debug(6, "EXT4BF: checkpointing buffer: %lu\n", (jh2bh(jh))->b_blocknr);
+ 
+ 	if (!transaction->t_checkpoint_list) {
+ 		jh->b_cpnext = jh->b_cpprev = jh;
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/fs/ext4/commit.c
+--- linux-3.2/fs/ext4/commit.c	2013-10-30 18:30:36.464358233 -0500
++++ optfs/fs/ext4/commit.c	2013-10-30 19:41:33.665928474 -0500
+@@ -15,7 +15,7 @@
+ 
+ #include <linux/time.h>
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/errno.h>
+ #include <linux/slab.h>
+ #include <linux/mm.h>
+@@ -27,8 +27,8 @@
+ #include <linux/bio.h>
+ #include <linux/blkdev.h>
+ #include <linux/bitops.h>
+-#include <trace/events/jbd2.h>
+ #include <asm/system.h>
++#include "ext4.h"
+ 
+ /*
+  * Default IO end handler for temporary BJ_IO buffer_heads.
+@@ -213,7 +213,6 @@ static int journal_submit_data_buffers(j
+ 		 * block allocation  with delalloc. We need to write
+ 		 * only allocated blocks here.
+ 		 */
+-		trace_jbd2_submit_inode_data(jinode->i_vfs_inode);
+ 		err = journal_submit_inode_data_buffers(mapping);
+ 		if (!ret)
+ 			ret = err;
+@@ -280,7 +279,7 @@ static int journal_finish_inode_data_buf
+ 	return ret;
+ }
+ 
+-static __u32 jbd2_checksum_data(__u32 crc32_sum, struct buffer_head *bh)
++__u32 jbd2_checksum_data(__u32 crc32_sum, struct buffer_head *bh)
+ {
+ 	struct page *page = bh->b_page;
+ 	char *addr;
+@@ -295,11 +294,41 @@ static __u32 jbd2_checksum_data(__u32 cr
+ }
+ 
+ static void write_tag_block(int tag_bytes, journal_block_tag_t *tag,
+-				   unsigned long long block)
++				   unsigned long long block, __u32 data_checksum, __u32 block_type)
+ {
+ 	tag->t_blocknr = cpu_to_be32(block & (u32)~0);
+-	if (tag_bytes > JBD2_TAG_SIZE32)
++	if (tag_bytes > JBD2_TAG_SIZE32) {
+ 		tag->t_blocknr_high = cpu_to_be32((block >> 31) >> 1);
++		/* ext4: write the checksum into the tag; */
++		tag->t_chksum_type 	= JBD2_CRC32_CHKSUM;
++		tag->t_chksum_size 	= JBD2_CRC32_CHKSUM_SIZE;
++		tag->t_chksum[0] 	= cpu_to_be32(data_checksum & (u32)~0);
++		tag->t_blocktype    = cpu_to_be32(block_type & (u32)~0);
++    }
++}
++
++struct buffer_head	*j_data_bhs[EXT4BF_DATA_BATCH];
++/* ext4: routine to write out data blocks listed in t_forget list of each
++ * transactions. Mirrors __flush_batch from checkpoint.c
++ */
++static void
++__flush_data_batch(int *batch_count)
++{
++	int i;
++	struct blk_plug plug;
++
++	blk_start_plug(&plug);
++	for (i = 0; i < *batch_count; i++)
++		write_dirty_buffer(j_data_bhs[i], WRITE_SYNC);
++	blk_finish_plug(&plug);
++
++	for (i = 0; i < *batch_count; i++) {
++		struct buffer_head *bh = j_data_bhs[i];
++		clear_buffer_jwrite(bh);
++		BUFFER_TRACE(bh, "brelse");
++		__brelse(bh);
++	}
++	*batch_count = 0;
+ }
+ 
+ /*
+@@ -330,6 +359,7 @@ void jbd2_journal_commit_transaction(jou
+ 	int tag_bytes = journal_tag_bytes(journal);
+ 	struct buffer_head *cbh = NULL; /* For transactional checksums */
+ 	__u32 crc32_sum = ~0;
++	__u32 crc32_data_sum = ~0;
+ 	struct blk_plug plug;
+ 
+ 	/*
+@@ -351,14 +381,13 @@ void jbd2_journal_commit_transaction(jou
+ 	commit_transaction = journal->j_running_transaction;
+ 	J_ASSERT(commit_transaction->t_state == T_RUNNING);
+ 
+-	trace_jbd2_start_commit(journal, commit_transaction);
++    mutex_lock(&commit_transaction->t_dirty_data_mutex);
+ 	jbd_debug(1, "JBD2: starting commit of transaction %d\n",
+ 			commit_transaction->t_tid);
+ 
+ 	write_lock(&journal->j_state_lock);
+ 	commit_transaction->t_state = T_LOCKED;
+ 
+-	trace_jbd2_commit_locking(journal, commit_transaction);
+ 	stats.run.rs_wait = commit_transaction->t_max_wait;
+ 	stats.run.rs_locked = jiffies;
+ 	stats.run.rs_running = jbd2_time_diff(commit_transaction->t_start,
+@@ -434,7 +463,6 @@ void jbd2_journal_commit_transaction(jou
+ 	 */
+ 	jbd2_journal_switch_revoke_table(journal);
+ 
+-	trace_jbd2_commit_flushing(journal, commit_transaction);
+ 	stats.run.rs_flushing = jiffies;
+ 	stats.run.rs_locked = jbd2_time_diff(stats.run.rs_locked,
+ 					     stats.run.rs_flushing);
+@@ -449,13 +477,61 @@ void jbd2_journal_commit_transaction(jou
+ 
+ 	jbd_debug(3, "JBD2: commit phase 2\n");
+ 
++#ifdef DCHECKSUM
++    /* ext4: attempt to read the data blocks inside the t_forget list of the
++     * the current transaction. */
++        
++    jh = commit_transaction->t_dirty_data_list;
++    int data_batch_count = 0;
++    struct journal_head *jh_next;
++    jbd_debug(6, "EXT4BF: Starting to issue the data blocks: %lu\n", commit_transaction->t_num_dirty_blocks);
++
++    /* List of buffer heads to submit. */
++    while(1) {
++        if (!jh) {
++            break;
++        }
++        struct buffer_head *bh = jh2bh(jh);
++        if (!bh) break;
++        
++        if (bh->b_blocktype == 1){
++            /* Process the data buffer. */
++            get_bh(bh);
++            set_buffer_jwrite(bh);
++            j_data_bhs[data_batch_count++] = bh;
++            if (data_batch_count == EXT4BF_DATA_BATCH) {
++                __flush_data_batch(&data_batch_count);
++            }
++        }
++        /* If we are looping back, break */
++        if (jh->b_tnext == commit_transaction->t_dirty_data_list) {
++            /* We're done; flush remaining buffers and exit. */
++            if (data_batch_count) {
++                __flush_data_batch(&data_batch_count);
++            }
++            if (bh->b_blocktype !=1)
++                jbd2_journal_refile_buffer(journal, jh);
++            break;
++        }
++        jh_next = jh->b_tnext;
++        /* Don't refile journal heads which are type 1. We will check for them
++         * later.*/
++        if (bh->b_blocktype !=1)
++            jbd2_journal_refile_buffer(journal, jh);
++        jh = jh_next;
++    }
++    jbd_debug(6, "EXT4BF: Ending the issue of data blocks\n");
++#endif
++
+ 	/*
+ 	 * Now start flushing things to disk, in the order they appear
+ 	 * on the transaction lists.  Data blocks go first.
+ 	 */
+ 	err = journal_submit_data_buffers(journal, commit_transaction);
+-	if (err)
++	if (err){
++	    jbd_debug(6, "EXT4BF: aborting journal because of errors in journal_submit_inode_data_buffers");
+ 		jbd2_journal_abort(journal, err);
++    }
+ 
+ 	blk_start_plug(&plug);
+ 	jbd2_journal_write_revoke_records(journal, commit_transaction,
+@@ -473,7 +549,6 @@ void jbd2_journal_commit_transaction(jou
+ 	commit_transaction->t_state = T_COMMIT;
+ 	write_unlock(&journal->j_state_lock);
+ 
+-	trace_jbd2_commit_logging(journal, commit_transaction);
+ 	stats.run.rs_logging = jiffies;
+ 	stats.run.rs_flushing = jbd2_time_diff(stats.run.rs_flushing,
+ 					       stats.run.rs_logging);
+@@ -494,6 +569,9 @@ void jbd2_journal_commit_transaction(jou
+ 
+ 		jh = commit_transaction->t_buffers;
+ 
++        if (jh2bh(jh)) 
++            jbd_debug(6, "EXT4BF: inside t_buffers block %lu\n", (jh2bh(jh))->b_blocknr);
++
+ 		/* If we're in abort mode, we just un-journal the buffer and
+ 		   release it. */
+ 
+@@ -526,6 +604,7 @@ void jbd2_journal_commit_transaction(jou
+ 
+ 			descriptor = jbd2_journal_get_descriptor_buffer(journal);
+ 			if (!descriptor) {
++			    jbd_debug(6, "EXT4BF: aborting because we couldn't get space for desc block.");
+ 				jbd2_journal_abort(journal, -EIO);
+ 				continue;
+ 			}
+@@ -550,17 +629,56 @@ void jbd2_journal_commit_transaction(jou
+ 			BUFFER_TRACE(bh, "ph3: file as descriptor");
+ 			jbd2_journal_file_buffer(descriptor, commit_transaction,
+ 					BJ_LogCtl);
+-		}
+ 
+-		/* Where is the buffer to be written? */
++#ifdef DCHECKSUM
++			/* EXT4BF */
++            /* Add the data tags to the descriptor. */
++            struct jbd_data_tag *entry;
++            struct list_head *l, *ltmp;
++
++            list_for_each_safe(l, ltmp, &commit_transaction->t_data_tag_list) {
++                entry = list_entry(l, struct jbd_data_tag, list);
++                jbd_debug(6, "EXT4BF: data tag blocknr: %lu\n", entry->b_blocknr);
++                jbd_debug(6, "EXT4BF: data tag checksum: %u\n", entry->crc32_data_sum);
++
++                if (space_left < tag_bytes + 16) goto done_with_tags;
++                /* Write tags out */
++                tag_flag = 0;
++                if (flags & 1)
++                    tag_flag |= JBD2_FLAG_ESCAPE;
++                if (!first_tag)
++                    tag_flag |= JBD2_FLAG_SAME_UUID;
++
++                tag = (journal_block_tag_t *) tagp;
++                write_tag_block(tag_bytes, tag, jh2bh(jh)->b_blocknr,
++                        crc32_data_sum, 1);
++                tag->t_flags = cpu_to_be32(tag_flag);
++                tagp += tag_bytes;
++                space_left -= tag_bytes;
++                if (first_tag) {
++                    memcpy (tagp, journal->j_uuid, 16);
++                    tagp += 16;
++                    space_left -= 16;
++                    first_tag = 0;
++                }
++                list_del(l);
++                jbd2_free_data_tag(entry);
++            }
++#endif
++        }
++        /* Where is the buffer to be written? */
+ 
++        jbd_debug(6, "EXT4BF: processing a metadata block\n");
++
++        /* ext4: continue with normal procesing. */
+ 		err = jbd2_journal_next_log_block(journal, &blocknr);
++		
+ 		/* If the block mapping failed, just abandon the buffer
+ 		   and repeat this loop: we'll fall into the
+ 		   refile-on-abort condition above. */
+ 		if (err) {
++		    jbd_debug(6, "EXT4BF: aborting because of error in getting next log block.");
+ 			jbd2_journal_abort(journal, err);
+-			continue;
+ 		}
+ 
+ 		/*
+@@ -590,6 +708,7 @@ void jbd2_journal_commit_transaction(jou
+ 		flags = jbd2_journal_write_metadata_buffer(commit_transaction,
+ 						      jh, &new_jh, blocknr);
+ 		if (flags < 0) {
++		    jbd_debug(6, "EXT4BF: aborting because of error in journal_write_metadata_buffer");
+ 			jbd2_journal_abort(journal, flags);
+ 			continue;
+ 		}
+@@ -605,22 +724,26 @@ void jbd2_journal_commit_transaction(jou
+ 		if (!first_tag)
+ 			tag_flag |= JBD2_FLAG_SAME_UUID;
+ 
+-		tag = (journal_block_tag_t *) tagp;
+-		write_tag_block(tag_bytes, tag, jh2bh(jh)->b_blocknr);
+-		tag->t_flags = cpu_to_be32(tag_flag);
+-		tagp += tag_bytes;
+-		space_left -= tag_bytes;
+-
+-		if (first_tag) {
+-			memcpy (tagp, journal->j_uuid, 16);
+-			tagp += 16;
+-			space_left -= 16;
+-			first_tag = 0;
+-		}
++        tag = (journal_block_tag_t *) tagp;
++        write_tag_block(tag_bytes, tag, jh2bh(jh)->b_blocknr, 0, 0);
++        tag->t_flags = cpu_to_be32(tag_flag);
++        tagp += tag_bytes;
++        space_left -= tag_bytes;
++
++        if (first_tag) {
++            memcpy (tagp, journal->j_uuid, 16);
++            tagp += 16;
++            space_left -= 16;
++            first_tag = 0;
++        }
++        jbd_debug(6, "EXT4BF: finished writing tags.");
+ 
+ 		/* If there's no more to do, or if the descriptor is full,
+ 		   let the IO rip! */
+ 
++done_with_tags:
++
++        jbd_debug(6, "EXT4BF: gonna submit the I/Os\n");
+ 		if (bufs == journal->j_wbufsize ||
+ 		    commit_transaction->t_buffers == NULL ||
+ 		    space_left < tag_bytes + 16) {
+@@ -671,10 +794,36 @@ start_journal_io:
+ 		err = 0;
+ 	}
+ 
++wait_for_data:
++    /* ext4: Wait for previous I/O to complete.*/
++    while (commit_transaction->t_dirty_data_list) {
++        struct buffer_head *bh;
++
++        jh = commit_transaction->t_dirty_data_list->b_tprev;
++        bh = jh2bh(jh);
++        jbd_debug(6, "EXT4BF: waiting for write of data block %lu\n", bh->b_blocknr);
++
++        if (buffer_locked(bh)) {
++            wait_on_buffer(bh);
++            goto wait_for_data;
++        }
++        if (cond_resched())
++            goto wait_for_data;
++
++        if (unlikely(!buffer_uptodate(bh)))
++            err = -EIO;
++
++        clear_buffer_jwrite(bh);
++
++        JBUFFER_TRACE(jh, "ph4: unfile after journal write");
++        jbd2_journal_refile_buffer(journal, jh);
++    }
++
+ 	write_lock(&journal->j_state_lock);
+ 	J_ASSERT(commit_transaction->t_state == T_COMMIT);
+ 	commit_transaction->t_state = T_COMMIT_DFLUSH;
+ 	write_unlock(&journal->j_state_lock);
++
+ 	/* 
+ 	 * If the journal is not located on the file system device,
+ 	 * then we must flush the file system device before we issue
+@@ -719,6 +868,8 @@ wait_for_iobuf:
+ 
+ 		jh = commit_transaction->t_iobuf_list->b_tprev;
+ 		bh = jh2bh(jh);
++        jbd_debug(6, "EXT4BF: waiting for write of journal block %lu\n", bh->b_blocknr);
++
+ 		if (buffer_locked(bh)) {
+ 			wait_on_buffer(bh);
+ 			goto wait_for_iobuf;
+@@ -780,6 +931,7 @@ wait_for_iobuf:
+ 
+ 		jh = commit_transaction->t_log_list->b_tprev;
+ 		bh = jh2bh(jh);
++        jbd_debug(6, "EXT4BF: waiting for write of de/re block %lu\n", bh->b_blocknr);
+ 		if (buffer_locked(bh)) {
+ 			wait_on_buffer(bh);
+ 			goto wait_for_ctlbuf;
+@@ -787,6 +939,7 @@ wait_for_iobuf:
+ 		if (cond_resched())
+ 			goto wait_for_ctlbuf;
+ 
++        jbd_debug(6, "EXT4BF: checking block type %lu\n", bh->b_blocktype);
+ 		if (unlikely(!buffer_uptodate(bh)))
+ 			err = -EIO;
+ 
+@@ -798,8 +951,10 @@ wait_for_iobuf:
+ 		/* AKPM: bforget here */
+ 	}
+ 
+-	if (err)
+-		jbd2_journal_abort(journal, err);
++    if (err) { 
++        jbd_debug(6, "EXT4BF: aborting because of error in writing journal log blocks.");
++        jbd2_journal_abort(journal, err);
++    }
+ 
+ 	jbd_debug(3, "JBD2: commit phase 5\n");
+ 	write_lock(&journal->j_state_lock);
+@@ -822,8 +977,10 @@ wait_for_iobuf:
+ 		blkdev_issue_flush(journal->j_dev, GFP_KERNEL, NULL);
+ 	}
+ 
+-	if (err)
+-		jbd2_journal_abort(journal, err);
++    if (err) {
++        jbd_debug(6, "EXT4BF: aborting because of error in writing commit record.");
++        jbd2_journal_abort(journal, err);
++    }
+ 
+ 	/* End of a transaction!  Finally, we can do checkpoint
+            processing: any buffers committed as a result of this
+@@ -839,6 +996,9 @@ wait_for_iobuf:
+ 	J_ASSERT(commit_transaction->t_shadow_list == NULL);
+ 	J_ASSERT(commit_transaction->t_log_list == NULL);
+ 
++    /* ext4: set checkpoint time for the whole transaction. */
++    commit_transaction->t_checkpoint_time = jiffies + msecs_to_jiffies(JBDBF_CHECKPOINT_INTERVAL); 
++
+ restart_loop:
+ 	/*
+ 	 * As there are other places (journal_unmap_buffer()) adding buffers
+@@ -853,6 +1013,7 @@ restart_loop:
+ 		jh = commit_transaction->t_forget;
+ 		spin_unlock(&journal->j_list_lock);
+ 		bh = jh2bh(jh);
++
+ 		/*
+ 		 * Get a reference so that bh cannot be freed before we are
+ 		 * done with it.
+@@ -861,6 +1022,13 @@ restart_loop:
+ 		jbd_lock_bh_state(bh);
+ 		J_ASSERT_JH(jh,	jh->b_transaction == commit_transaction);
+ 
++        /* ext4: tagging the block so that it will not be written by the VM
++         * subsystem. The VM subsystem will write this out after the checkpoint
++         * time embedded in the block. */
++        bh->b_blocktype = 3;
++        bh->b_checkpoint_time = jiffies + msecs_to_jiffies(JBDBF_CHECKPOINT_INTERVAL); 
++        bh->b_delayed_write = 1;
++
+ 		/*
+ 		 * If there is undo-protected committed data against
+ 		 * this buffer, then we can remove it now.  If it is a
+@@ -944,6 +1112,7 @@ restart_loop:
+ 		cond_resched_lock(&journal->j_list_lock);
+ 	}
+ 	spin_unlock(&journal->j_list_lock);
++
+ 	/*
+ 	 * This is a bit sleazy.  We use j_list_lock to protect transition
+ 	 * of a transaction into T_FINISHED state and calling
+@@ -952,6 +1121,7 @@ restart_loop:
+ 	 */
+ 	write_lock(&journal->j_state_lock);
+ 	spin_lock(&journal->j_list_lock);
++
+ 	/*
+ 	 * Now recheck if some buffers did not get attached to the transaction
+ 	 * while the lock was dropped...
+@@ -978,8 +1148,6 @@ restart_loop:
+ 	stats.ts_tid = commit_transaction->t_tid;
+ 	stats.run.rs_handle_count =
+ 		atomic_read(&commit_transaction->t_handle_count);
+-	trace_jbd2_run_stats(journal->j_fs_dev->bd_dev,
+-			     commit_transaction->t_tid, &stats.run);
+ 
+ 	/*
+ 	 * Calculate overall stats
+@@ -1038,7 +1206,7 @@ restart_loop:
+ 	if (journal->j_commit_callback)
+ 		journal->j_commit_callback(journal, commit_transaction);
+ 
+-	trace_jbd2_end_commit(journal, commit_transaction);
++    mutex_unlock(&commit_transaction->t_dirty_data_mutex);
+ 	jbd_debug(1, "JBD2: commit %d complete, head %d\n",
+ 		  journal->j_commit_sequence, journal->j_tail_sequence);
+ 	if (to_free)
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/dir.c optfs/fs/ext4/dir.c
+--- linux-3.2/fs/ext4/dir.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/dir.c	2013-10-30 19:41:33.666928488 -0500
+@@ -22,7 +22,7 @@
+  */
+ 
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/buffer_head.h>
+ #include <linux/slab.h>
+ #include <linux/rbtree.h>
+@@ -425,8 +425,8 @@ static int call_filldir(struct file *fil
+ 	sb = inode->i_sb;
+ 
+ 	if (!fname) {
+-		printk(KERN_ERR "EXT4-fs: call_filldir: called with "
+-		       "null fname?!?\n");
++		printk(KERN_ERR "EXT4BF: call_filldir: called with "
++		       "null fname.\n");
+ 		return 0;
+ 	}
+ 	curr_pos = hash2pos(fname->hash, fname->minor_hash);
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4_extents.h optfs/fs/ext4/ext4_extents.h
+--- linux-3.2/fs/ext4/ext4_extents.h	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/ext4_extents.h	2013-10-30 19:41:33.672928576 -0500
+@@ -42,15 +42,16 @@
+  */
+ #define CHECK_BINSEARCH__
+ 
++#define ext_debug(a...)
+ /*
+  * Turn on EXT_DEBUG to get lots of info about extents operations.
+- */
++ *
+ #define EXT_DEBUG__
+ #ifdef EXT_DEBUG
+ #define ext_debug(a...)		printk(a)
+ #else
+-#define ext_debug(a...)
+ #endif
++*/
+ 
+ /*
+  * If EXT_STATS is defined then stats numbers are collected.
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4.h optfs/fs/ext4/ext4.h
+--- linux-3.2/fs/ext4/ext4.h	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/ext4.h	2013-10-30 19:41:33.672928575 -0500
+@@ -19,7 +19,7 @@
+ #include <linux/types.h>
+ #include <linux/blkdev.h>
+ #include <linux/magic.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/quota.h>
+ #include <linux/rwsem.h>
+ #include <linux/rbtree.h>
+@@ -33,6 +33,8 @@
+ #include <linux/compat.h>
+ #endif
+ 
++#include <linux/list.h>
++
+ /*
+  * The fourth extended filesystem constants/structures
+  */
+@@ -41,20 +43,23 @@
+  * Define EXT4FS_DEBUG to produce debug messages
+  */
+ #undef EXT4FS_DEBUG
++#define CONFIG_EXT4_DEBUG
++
++#define ext4_debug(f, a...)	do {} while (0)
+ 
+ /*
+  * Debug code
+  */
++/*
+ #ifdef EXT4FS_DEBUG
+ #define ext4_debug(f, a...)						\
+ 	do {								\
+-		printk(KERN_DEBUG "EXT4-fs DEBUG (%s, %d): %s:",	\
++		printk(KERN_DEBUG "EXT4BF-fs DEBUG (%s, %d): %s:",	\
+ 			__FILE__, __LINE__, __func__);			\
+ 		printk(KERN_DEBUG f, ## a);				\
+ 	} while (0)
+-#else
+-#define ext4_debug(f, a...)	do {} while (0)
+ #endif
++*/
+ 
+ #define EXT4_ERROR_INODE(inode, fmt, a...) \
+ 	ext4_error_inode((inode), __func__, __LINE__, 0, (fmt), ## a)
+@@ -432,7 +437,7 @@ enum {
+ 
+ #define TEST_FLAG_VALUE(FLAG) (EXT4_##FLAG##_FL == (1 << EXT4_INODE_##FLAG))
+ #define CHECK_FLAG_VALUE(FLAG) if (!TEST_FLAG_VALUE(FLAG)) { \
+-	printk(KERN_EMERG "EXT4 flag fail: " #FLAG ": %d %d\n", \
++	printk(KERN_EMERG "EXT4BF flag fail: " #FLAG ": %d %d\n", \
+ 		EXT4_##FLAG##_FL, EXT4_INODE_##FLAG); BUG_ON(1); }
+ 
+ /*
+@@ -939,6 +944,7 @@ struct ext4_inode_info {
+ #define EXT4_MOUNT_BLOCK_VALIDITY	0x20000000 /* Block validity checking */
+ #define EXT4_MOUNT_DISCARD		0x40000000 /* Issue DISCARD requests */
+ #define EXT4_MOUNT_INIT_INODE_TABLE	0x80000000 /* Initialize uninitialized itables */
++#define EXT4_MOUNT_BARRIERFREE_DATA	0xC0000000 /* Barrier-free mode. */
+ 
+ #define EXT4_MOUNT2_EXPLICIT_DELALLOC	0x00000001 /* User explicitly
+ 						      specified delalloc */
+@@ -1466,6 +1472,7 @@ static inline void ext4_clear_state_flag
+ #define EXT4_DEFM_BLOCK_VALIDITY 0x0200
+ #define EXT4_DEFM_DISCARD	0x0400
+ #define EXT4_DEFM_NODELALLOC	0x0800
++#define EXT4_DEFM_JMODE_BARRIERFREE	0x1000
+ 
+ /*
+  * Default journal batch times
+@@ -1832,6 +1839,24 @@ extern int ext4_init_inode_table(struct 
+ 				 ext4_group_t group, int barrier);
+ 
+ /* mballoc.c */
++
++/* ext4: turn on different features in the kernel. */
++#define DELAYED_REUSE
++#define PARTJ
++#define DCHECKSUM
++
++/* Batching number for data write outs. */
++#define EXT4BF_DATA_BATCH 64
++/* */
++
++/* ext4: extra structs and lists for barrier-free ext4. */
++extern struct list_head ext4_delayed_reuse_list;
++extern void release_blocks_after_delay(struct super_block *sb, int delay, int finish);
++extern spinlock_t dr_lock;
++extern spinlock_t data_tag_lock;
++extern struct task_struct *delay_reuse_task;
++/* */
++
+ extern long ext4_mb_stats;
+ extern long ext4_mb_max_to_scan;
+ extern int ext4_mb_init(struct super_block *, int);
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4_jbd2.c optfs/fs/ext4/ext4_jbd2.c
+--- linux-3.2/fs/ext4/ext4_jbd2.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/ext4_jbd2.c	2013-10-30 19:41:33.674928604 -0500
+@@ -4,7 +4,9 @@
+ 
+ #include "ext4_jbd2.h"
+ 
++/*
+ #include <trace/events/ext4.h>
++*/
+ 
+ int __ext4_journal_get_write_access(const char *where, unsigned int line,
+ 				    handle_t *handle, struct buffer_head *bh)
+@@ -108,10 +110,25 @@ int __ext4_handle_dirty_metadata(const c
+ 	int err = 0;
+ 
+ 	if (ext4_handle_valid(handle)) {
+-		err = jbd2_journal_dirty_metadata(handle, bh);
+-		if (err) {
+-			/* Errors can only happen if there is a bug */
+-			handle->h_err = err;
++
++#ifdef DCHECKSUM
++        /* ext4: handle cases where it is a data block. */
++        if (bh && bh->b_blocktype == 1) {
++#endif
++#ifdef PARTJ
++            if (!buffer_new(bh))
++                err = jbd2_journal_dirty_metadata(handle, bh);
++            else
++#endif
++#ifdef DCHECKSUM
++
++                jbd2_journal_dirty_data(handle, bh);
++        } else
++#endif
++            err = jbd2_journal_dirty_metadata(handle, bh);
++        if (err) {
++            /* Errors can only happen if there is a bug */
++            handle->h_err = err;
+ 			__ext4_journal_stop(where, line, handle);
+ 		}
+ 	} else {
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4_jbd2.h optfs/fs/ext4/ext4_jbd2.h
+--- linux-3.2/fs/ext4/ext4_jbd2.h	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/ext4_jbd2.h	2013-10-30 19:41:33.674928605 -0500
+@@ -16,7 +16,7 @@
+ #define _EXT4_JBD2_H
+ 
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include "ext4.h"
+ 
+ #define EXT4_JOURNAL(inode)	(EXT4_SB((inode)->i_sb)->s_journal)
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/extents.c optfs/fs/ext4/extents.c
+--- linux-3.2/fs/ext4/extents.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/extents.c	2013-10-30 19:41:33.686928778 -0500
+@@ -32,7 +32,7 @@
+ #include <linux/module.h>
+ #include <linux/fs.h>
+ #include <linux/time.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/highuid.h>
+ #include <linux/pagemap.h>
+ #include <linux/quotaops.h>
+@@ -667,7 +667,7 @@ ext4_ext_find_extent(struct inode *inode
+ 			goto err;
+ 		if (!bh_uptodate_or_lock(bh)) {
+ 			trace_ext4_ext_load_extent(inode, block,
+-						path[ppos].p_block);
++		    				path[ppos].p_block);
+ 			if (bh_submit_read(bh) < 0) {
+ 				put_bh(bh);
+ 				goto err;
+@@ -2600,7 +2600,7 @@ again:
+ 	}
+ 
+ 	trace_ext4_ext_remove_space_done(inode, start, depth, partial_cluster,
+-			path->p_hdr->eh_entries);
++    			path->p_hdr->eh_entries);
+ 
+ 	/* If we still have something in the partial cluster and we have removed
+ 	 * even the first extent, then we should free the blocks in the partial
+@@ -2652,7 +2652,7 @@ void ext4_ext_init(struct super_block *s
+ 
+ 	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_EXTENTS)) {
+ #if defined(AGGRESSIVE_TEST) || defined(CHECK_BINSEARCH) || defined(EXTENTS_STATS)
+-		printk(KERN_INFO "EXT4-fs: file extents enabled");
++		printk(KERN_INFO "EXT4BF-fs: file extents enabled");
+ #ifdef AGGRESSIVE_TEST
+ 		printk(", aggressive tests");
+ #endif
+@@ -2683,10 +2683,10 @@ void ext4_ext_release(struct super_block
+ #ifdef EXTENTS_STATS
+ 	if (EXT4_SB(sb)->s_ext_blocks && EXT4_SB(sb)->s_ext_extents) {
+ 		struct ext4_sb_info *sbi = EXT4_SB(sb);
+-		printk(KERN_ERR "EXT4-fs: %lu blocks in %lu extents (%lu ave)\n",
++		printk(KERN_ERR "EXT4BF-fs: %lu blocks in %lu extents (%lu ave)\n",
+ 			sbi->s_ext_blocks, sbi->s_ext_extents,
+ 			sbi->s_ext_blocks / sbi->s_ext_extents);
+-		printk(KERN_ERR "EXT4-fs: extents: %lu min, %lu max, max depth %lu\n",
++		printk(KERN_ERR "EXT4BF-fs: extents: %lu min, %lu max, max depth %lu\n",
+ 			sbi->s_ext_min, sbi->s_ext_max, sbi->s_depth_max);
+ 	}
+ #endif
+@@ -3007,7 +3007,7 @@ static int ext4_ext_convert_to_initializ
+ 				goto out;
+ 
+ 			trace_ext4_ext_convert_to_initialized_fastpath(inode,
+-				map, ex, prev_ex);
++		    		map, ex, prev_ex);
+ 
+ 			/* Shift the start of ex by 'write_len' blocks */
+ 			ex->ee_block = cpu_to_le32(ee_block + write_len);
+@@ -3352,7 +3352,7 @@ nextpage:
+ 	}
+ 
+ 	trace_ext4_find_delalloc_range(inode, lblk_start, lblk_end,
+-					search_hint_reverse, 0, 0);
++    					search_hint_reverse, 0, 0);
+ 	return 0;
+ }
+ 
+@@ -3460,7 +3460,7 @@ ext4_ext_handle_uninitialized_extents(ha
+ 	ext4_ext_show_leaf(inode, path);
+ 
+ 	trace_ext4_ext_handle_uninitialized_extents(inode, map, allocated,
+-						    newblock);
++    						    newblock);
+ 
+ 	/* get_block() before submit the IO, split the extent */
+ 	if ((flags & EXT4_GET_BLOCKS_PRE_IO)) {
+@@ -4061,6 +4061,7 @@ got_allocated_blocks:
+ 	if (allocated > map->m_len)
+ 		allocated = map->m_len;
+ 	map->m_flags |= EXT4_MAP_NEW;
++	jbd_debug(6, "EXT4BF: mapped new allocated block at %lu\n", newblock);
+ 
+ 	/*
+ 	 * Update reserved blocks/metadata blocks after successful
+@@ -4388,7 +4389,7 @@ retry:
+ 	}
+ 	mutex_unlock(&inode->i_mutex);
+ 	trace_ext4_fallocate_exit(inode, offset, max_blocks,
+-				ret > 0 ? ret2 : ret);
++    			ret > 0 ? ret2 : ret);
+ 	return ret > 0 ? ret2 : ret;
+ }
+ 
+@@ -4713,6 +4714,8 @@ int ext4_ext_punch_hole(struct file *fil
+ 	loff_t first_page_offset, last_page_offset;
+ 	int ret, credits, blocks_released, err = 0;
+ 
++	jbd_debug(6, "EXT4BF: inside ext4_ext_punch_hole");
++
+ 	/* No need to punch hole beyond i_size */
+ 	if (offset >= inode->i_size)
+ 		return 0;
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/file.c optfs/fs/ext4/file.c
+--- linux-3.2/fs/ext4/file.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/file.c	2013-10-30 19:41:33.686928778 -0500
+@@ -20,7 +20,7 @@
+ 
+ #include <linux/time.h>
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/mount.h>
+ #include <linux/path.h>
+ #include <linux/quotaops.h>
+@@ -200,7 +200,7 @@ static int ext4_file_open(struct inode *
+ 				return -ENOMEM;
+ 			}
+ 			ei->jinode = jinode;
+-			jbd2_journal_init_jbd_inode(ei->jinode, inode);
++			jbd2_journal_init_jbd2_inode(ei->jinode, inode);
+ 			jinode = NULL;
+ 		}
+ 		spin_unlock(&inode->i_lock);
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/fsync.c optfs/fs/ext4/fsync.c
+--- linux-3.2/fs/ext4/fsync.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/fsync.c	2013-10-30 19:41:33.688928807 -0500
+@@ -26,7 +26,7 @@
+ #include <linux/fs.h>
+ #include <linux/sched.h>
+ #include <linux/writeback.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/blkdev.h>
+ 
+ #include "ext4.h"
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/hash.c optfs/fs/ext4/hash.c
+--- linux-3.2/fs/ext4/hash.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/hash.c	2013-10-30 19:41:33.689928822 -0500
+@@ -10,7 +10,7 @@
+  */
+ 
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/cryptohash.h>
+ #include "ext4.h"
+ 
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ialloc.c optfs/fs/ext4/ialloc.c
+--- linux-3.2/fs/ext4/ialloc.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/ialloc.c	2013-10-30 19:41:33.692928866 -0500
+@@ -14,7 +14,7 @@
+ 
+ #include <linux/time.h>
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/stat.h>
+ #include <linux/string.h>
+ #include <linux/quotaops.h>
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/inode.c optfs/fs/ext4/inode.c
+--- linux-3.2/fs/ext4/inode.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/inode.c	2013-10-30 19:41:33.708929099 -0500
+@@ -21,7 +21,7 @@
+ #include <linux/module.h>
+ #include <linux/fs.h>
+ #include <linux/time.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/highuid.h>
+ #include <linux/pagemap.h>
+ #include <linux/quotaops.h>
+@@ -43,6 +43,7 @@
+ #include "xattr.h"
+ #include "acl.h"
+ #include "truncate.h"
++#include "ext4.h"
+ 
+ #include <trace/events/ext4.h>
+ 
+@@ -788,6 +789,33 @@ static int do_journal_get_write_access(h
+ 	return ret;
+ }
+ 
++/* ext4 - ext4: walk and print page buffers with given tid. */
++static void walk_and_print_buffers(tid_t tid,
++                 struct buffer_head *head,
++                 unsigned from,
++                 unsigned to)
++{
++    struct buffer_head *bh;
++    unsigned block_start, block_end;
++    unsigned blocksize = head->b_size;
++    int err, ret = 0;
++    struct buffer_head *next;
++
++    for (bh = head, block_start = 0;
++         ret == 0 && (bh != head || !block_start);
++         block_start = block_end, bh = next) {
++        next = bh->b_this_page;
++        block_end = block_start + blocksize;
++        if (block_end <= from || block_start >= to) {
++            continue;
++        }
++        ext4_debug("ext4: marking block %lu as data\n", bh->b_blocknr);
++        ext4_debug("ext4: block type already present: %d\n", bh->b_blocktype);
++        bh->b_blocktype = 1;
++    }
++}
++/* */
++
+ static int ext4_get_block_write(struct inode *inode, sector_t iblock,
+ 		   struct buffer_head *bh_result, int create);
+ static int ext4_write_begin(struct file *file, struct address_space *mapping,
+@@ -802,7 +830,6 @@ static int ext4_write_begin(struct file 
+ 	pgoff_t index;
+ 	unsigned from, to;
+ 
+-	trace_ext4_write_begin(inode, pos, len, flags);
+ 	/*
+ 	 * Reserve one block more for addition to orphan list in case
+ 	 * we allocate blocks but write fails for some reason
+@@ -837,7 +864,12 @@ retry:
+ 		ret = __block_write_begin(page, pos, len, ext4_get_block);
+ 
+ 	if (!ret && ext4_should_journal_data(inode)) {
+-		ret = walk_page_buffers(handle, page_buffers(page),
++        /* ext4-ext4: mark buffers as data blocks. */
++        jbd_debug(6, "EXT4BF: marking data from write_begin\n");
++        walk_and_print_buffers(
++                handle->h_transaction->t_tid, page_buffers(page), from, to);
++        /* */
++        ret = walk_page_buffers(handle, page_buffers(page),
+ 				from, to, NULL, do_journal_get_write_access);
+ 	}
+ 
+@@ -880,7 +912,31 @@ static int write_end_fn(handle_t *handle
+ {
+ 	if (!buffer_mapped(bh) || buffer_freed(bh))
+ 		return 0;
++#ifdef DCHECKSUM
++	jbd_debug(6, "EXT4BF: Inside write end fn for block %lu\n", bh->b_blocknr);
+ 	set_buffer_uptodate(bh);
++	jbd_debug(6, "EXT4BF: data checksum at write_end: %u\n", jbd2_checksum_data(0, bh));
++	jbd_debug(6, "EXT4BF: testing whether buffer is new: %d\n", buffer_new(bh));
++    if (bh->b_blocktype == 1) {
++#endif
++#ifdef PARTJ
++        if (buffer_new(bh)) {
++#endif
++#ifdef DCHECKSUM
++            struct jbd_data_tag* dtag = jbd2_alloc_data_tag(GFP_NOFS);
++            dtag->b_blocknr = bh->b_blocknr;
++            dtag->crc32_data_sum = jbd2_checksum_data(0, bh);
++            dtag->processed = 0;
++            spin_lock(&data_tag_lock);
++            list_add(&dtag->list, &handle->h_transaction->t_data_tag_list);
++            spin_unlock(&data_tag_lock);
++#endif
++#ifdef PARTJ
++        }
++#endif
++#ifdef DCHECKSUM
++    }
++#endif
+ 	return ext4_handle_dirty_metadata(handle, NULL, bh);
+ }
+ 
+@@ -1841,7 +1897,13 @@ static int __ext4_journalled_writepage(s
+ 
+ 	err = walk_page_buffers(handle, page_bufs, 0, len, NULL,
+ 				write_end_fn);
+-	if (ret == 0)
++    /* ext4: mark buffers as data blocks. */
++    /*
++    walk_and_print_buffers(
++            handle->h_transaction->t_tid, page_buffers(page), 0, len);
++    */
++    /* */
++    if (ret == 0)
+ 		ret = err;
+ 	EXT4_I(inode)->i_datasync_tid = handle->h_transaction->t_tid;
+ 	err = ext4_journal_stop(handle);
+@@ -1948,6 +2010,10 @@ static int ext4_writepage(struct page *p
+ 		/* now mark the buffer_heads as dirty and uptodate */
+ 		block_commit_write(page, 0, len);
+ 
++    /* ext4: mark buffers as data blocks. */
++    // walk_and_print_buffers(0, page_buffers(page), 0, len);
++    /* */
++
+ 	if (PageChecked(page) && ext4_should_journal_data(inode))
+ 		/*
+ 		 * It's mmapped pagecache.  Add buffers and journal it.  There
+@@ -4404,8 +4470,9 @@ int ext4_writepage_trans_blocks(struct i
+ 	ret = ext4_meta_trans_blocks(inode, bpp, 0);
+ 
+ 	/* Account for data blocks for journalled mode */
+-	if (ext4_should_journal_data(inode))
++	/*if (ext4_should_journal_data(inode))
+ 		ret += bpp;
++	*/
+ 	return ret;
+ }
+ 
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ioctl.c optfs/fs/ext4/ioctl.c
+--- linux-3.2/fs/ext4/ioctl.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/ioctl.c	2013-10-30 19:41:33.708929100 -0500
+@@ -8,7 +8,7 @@
+  */
+ 
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/capability.h>
+ #include <linux/time.h>
+ #include <linux/compat.h>
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs/ext4/jbd2.h
+--- linux-3.2/fs/ext4/jbd2.h	2013-10-30 19:25:20.540736097 -0500
++++ optfs/fs/ext4/jbd2.h	2013-10-30 19:41:33.711929145 -0500
+@@ -1,5 +1,5 @@
+ /*
+- * linux/include/linux/jbd2.h
++ * linux/include/linux/jbd.h
+  *
+  * Written by Stephen C. Tweedie <sct@redhat.com>
+  *
+@@ -16,6 +16,7 @@
+ #ifndef _LINUX_JBD2_H
+ #define _LINUX_JBD2_H
+ 
++
+ /* Allow this file to be included directly into e2fsprogs */
+ #ifndef __KERNEL__
+ #include "jfs_compat.h"
+@@ -25,7 +26,7 @@
+ 
+ #include <linux/types.h>
+ #include <linux/buffer_head.h>
+-#include <linux/journal-head.h>
++#include "journal-bf-head.h"
+ #include <linux/stddef.h>
+ #include <linux/bit_spinlock.h>
+ #include <linux/mutex.h>
+@@ -49,6 +50,20 @@
+  */
+ #define JBD2_DEFAULT_MAX_COMMIT_AGE 5
+ 
++#define jbd_debug(f, a...)	/**/
++
++/*
++#define jbd_debug(n, f, a...)						\
++	do {								\
++		if ((n) <= 10) {			\
++			printk (KERN_DEBUG "(%s, %d): %s: ",		\
++				__FILE__, __LINE__, __func__);	\
++			printk (f, ## a);				\
++		}							\
++	} while (0)
++*/
++
++#define CONFIG_JBD2_DEBUG
+ #ifdef CONFIG_JBD2_DEBUG
+ /*
+  * Define JBD2_EXPENSIVE_CHECKING to enable more expensive internal
+@@ -58,16 +73,7 @@
+ #define JBD2_EXPENSIVE_CHECKING
+ extern u8 jbd2_journal_enable_debug;
+ 
+-#define jbd_debug(n, f, a...)						\
+-	do {								\
+-		if ((n) <= jbd2_journal_enable_debug) {			\
+-			printk (KERN_DEBUG "(%s, %d): %s: ",		\
+-				__FILE__, __LINE__, __func__);	\
+-			printk (f, ## a);				\
+-		}							\
+-	} while (0)
+-#else
+-#define jbd_debug(f, a...)	/**/
++// #define jbd_debug(f, a...)	/**/
+ #endif
+ 
+ extern void *jbd2_alloc(size_t size, gfp_t flags);
+@@ -172,11 +178,18 @@ struct commit_header {
+  * raw struct shouldn't be used for pointer math or sizeof() - use
+  * journal_tag_bytes(journal) instead to compute this.
+  */
++
+ typedef struct journal_block_tag_s
+ {
+ 	__be32		t_blocknr;	/* The on-disk block number */
+ 	__be32		t_flags;	/* See below */
+ 	__be32		t_blocknr_high; /* most-significant high 32bits. */
++	/* ext4: extra field for data checksums. */
++    unsigned char   t_chksum_type;
++	unsigned char   t_chksum_size;
++	unsigned char 	t_padding[2];
++	__be32 		t_chksum[JBD2_CHECKSUM_BYTES];
++	__be32         t_blocktype;
+ } journal_block_tag_t;
+ 
+ #define JBD2_TAG_SIZE32 (offsetof(journal_block_tag_t, t_blocknr_high))
+@@ -264,6 +277,8 @@ typedef struct journal_superblock_s
+ #define JBD2_FEATURE_INCOMPAT_64BIT		0x00000002
+ #define JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT	0x00000004
+ 
++#define JBD2_FEATURE_COMPAT_DATACHECKSUM    0x00000002
++
+ /* Features known to this kernel version: */
+ #define JBD2_KNOWN_COMPAT_FEATURES	JBD2_FEATURE_COMPAT_CHECKSUM
+ #define JBD2_KNOWN_ROCOMPAT_FEATURES	0
+@@ -275,7 +290,7 @@ typedef struct journal_superblock_s
+ 
+ #include <linux/fs.h>
+ #include <linux/sched.h>
+-#include <linux/jbd_common.h>
++#include "jbd_common.h"
+ 
+ #define J_ASSERT(assert)	BUG_ON(!(assert))
+ 
+@@ -303,7 +318,7 @@ typedef struct journal_superblock_s
+ #define J_EXPECT_JH(jh, expr, why...)	__journal_expect(expr, ## why)
+ #endif
+ 
+-/* Flags in jbd_inode->i_flags */
++/* Flags in jbd2_inode->i_flags */
+ #define __JI_COMMIT_RUNNING 0
+ /* Commit of the inode data in progress. We use this flag to protect us from
+  * concurrent deletion of inode. We cannot use reference to inode for this
+@@ -311,8 +326,48 @@ typedef struct journal_superblock_s
+  */
+ #define JI_COMMIT_RUNNING (1 << __JI_COMMIT_RUNNING)
+ 
++/* The transaction_t type is the guts of the journaling mechanism.  It
++ * tracks a compound transaction through its various states:
++ *
++ * RUNNING:	accepting new updates
++ * LOCKED:	Updates still running but we don't accept new ones
++ * RUNDOWN:	Updates are tidying up but have finished requesting
++ *		new buffers to modify (state not used for now)
++ * FLUSH:       All updates complete, but we are still writing to disk
++ * COMMIT:      All data on disk, writing commit record
++ * FINISHED:	We still have to keep the transaction for checkpointing.
++ *
++ * The transaction keeps track of all of the buffers modified by a
++ * running transaction, and all of the buffers committed but not yet
++ * flushed to home for finished transactions.
++ */
++
++/*
++ * Lock ranking:
++ *
++ *    j_list_lock
++ *      ->jbd_lock_bh_journal_head()	(This is "innermost")
++ *
++ *    j_state_lock
++ *    ->jbd_lock_bh_state()
++ *
++ *    jbd_lock_bh_state()
++ *    ->j_list_lock
++ *
++ *    j_state_lock
++ *    ->t_handle_lock
++ *
++ *    j_state_lock
++ *    ->j_list_lock			(journal_unmap_buffer)
++ *
++ */
++
++struct transaction_bf_s;
++struct transaction_chp_stats_s;
++typedef struct transaction_bf_s transaction_t;  /* Compound transaction type */
++
+ /**
+- * struct jbd_inode is the structure linking inodes in ordered mode
++ * struct jbd2_inode is the structure linking inodes in ordered mode
+  *   present in a transaction so that we can sync them during commit.
+  */
+ struct jbd2_inode {
+@@ -411,43 +466,7 @@ struct transaction_chp_stats_s {
+ 	__u32			cs_dropped;
+ };
+ 
+-/* The transaction_t type is the guts of the journaling mechanism.  It
+- * tracks a compound transaction through its various states:
+- *
+- * RUNNING:	accepting new updates
+- * LOCKED:	Updates still running but we don't accept new ones
+- * RUNDOWN:	Updates are tidying up but have finished requesting
+- *		new buffers to modify (state not used for now)
+- * FLUSH:       All updates complete, but we are still writing to disk
+- * COMMIT:      All data on disk, writing commit record
+- * FINISHED:	We still have to keep the transaction for checkpointing.
+- *
+- * The transaction keeps track of all of the buffers modified by a
+- * running transaction, and all of the buffers committed but not yet
+- * flushed to home for finished transactions.
+- */
+-
+-/*
+- * Lock ranking:
+- *
+- *    j_list_lock
+- *      ->jbd_lock_bh_journal_head()	(This is "innermost")
+- *
+- *    j_state_lock
+- *    ->jbd_lock_bh_state()
+- *
+- *    jbd_lock_bh_state()
+- *    ->j_list_lock
+- *
+- *    j_state_lock
+- *    ->t_handle_lock
+- *
+- *    j_state_lock
+- *    ->j_list_lock			(journal_unmap_buffer)
+- *
+- */
+-
+-struct transaction_s
++struct transaction_bf_s
+ {
+ 	/* Pointer to the journal for this transaction. [no locking] */
+ 	journal_t		*t_journal;
+@@ -552,6 +571,13 @@ struct transaction_s
+ 	 */
+ 	unsigned long		t_start;
+ 
++    /*
++     *  When its safe to checkpoint the transaction. This is usually a
++     *  pre-defined time (30s) after the commit record is signalled to
++     *  be completed.
++     */
++    unsigned long       t_checkpoint_time;
++
+ 	/*
+ 	 * Checkpointing stats [j_checkpoint_sem]
+ 	 */
+@@ -605,6 +631,24 @@ struct transaction_s
+ 	 * structures associated with the transaction
+ 	 */
+ 	struct list_head	t_private_list;
++
++    /*
++     * To store tags about data blocks.
++	 */
++	struct list_head	t_data_tag_list;
++
++	/* Number of dirty data blocks for this transaction. */
++	unsigned long       t_num_dirty_blocks;
++
++    /*
++	 * Doubly-linked circular list of all dirty data buffers 
++	 * * [j_list_lock]
++	 */
++	struct journal_head	*t_dirty_data_list;
++
++	/* Spin lock to protect the dirty data list for each transaction. */
++	struct semaphore  t_dirty_data_mutex;
++
+ };
+ 
+ struct transaction_run_stats_s {
+@@ -633,6 +677,15 @@ jbd2_time_diff(unsigned long start, unsi
+ 	return end + (MAX_JIFFY_OFFSET - start);
+ }
+ 
++struct jbd_data_tag {
++    unsigned long b_blocknr;
++	__u32 crc32_data_sum;
++	/* this links the free block information from ext4_sb_info */
++	struct list_head list;
++	int processed;
++};
++
++#define EXT4BF_DATA_BATCH 1024
+ #define JBD2_NR_BATCH	64
+ 
+ /**
+@@ -804,6 +857,11 @@ struct journal_s
+ 	 */
+ 	unsigned long		j_free;
+ 
++	/* 
++	 * Does the journal require checkpointing to free up space? 
++	 */
++	int                 needs_checkpoint;
++
+ 	/*
+ 	 * Journal start and end: the block numbers of the first usable block
+ 	 * and one beyond the last usable block in the journal. [j_state_lock]
+@@ -1017,6 +1075,9 @@ jbd2_journal_write_metadata_buffer(trans
+ 			      struct journal_head **jh_out,
+ 			      unsigned long long   blocknr);
+ 
++extern void jbd_write_data_buffer(transaction_t *transaction,
++        struct journal_head *jh_in);
++
+ /* Transaction locking */
+ extern void		__wait_on_journal (journal_t *);
+ 
+@@ -1053,6 +1114,7 @@ extern int	 jbd2_journal_get_undo_access
+ void		 jbd2_journal_set_triggers(struct buffer_head *,
+ 					   struct jbd2_buffer_trigger_type *type);
+ extern int	 jbd2_journal_dirty_metadata (handle_t *, struct buffer_head *);
++extern int	 jbd2_journal_dirty_data (handle_t *, struct buffer_head *);
+ extern void	 jbd2_journal_release_buffer (handle_t *, struct buffer_head *);
+ extern int	 jbd2_journal_forget (handle_t *, struct buffer_head *);
+ extern void	 journal_sync_buffer (struct buffer_head *);
+@@ -1093,7 +1155,7 @@ extern int	   jbd2_journal_force_commit(
+ extern int	   jbd2_journal_file_inode(handle_t *handle, struct jbd2_inode *inode);
+ extern int	   jbd2_journal_begin_ordered_truncate(journal_t *journal,
+ 				struct jbd2_inode *inode, loff_t new_size);
+-extern void	   jbd2_journal_init_jbd_inode(struct jbd2_inode *jinode, struct inode *inode);
++extern void	   jbd2_journal_init_jbd2_inode(struct jbd2_inode *jinode, struct inode *inode);
+ extern void	   jbd2_journal_release_jbd_inode(journal_t *journal, struct jbd2_inode *jinode);
+ 
+ /*
+@@ -1134,6 +1196,19 @@ static inline void jbd2_free_inode(struc
+ 	kmem_cache_free(jbd2_inode_cache, jinode);
+ }
+ 
++/* jbd data tag cache management. */
++extern struct kmem_cache *jbd_data_tag_cache;
++
++static inline struct jbd_data_tag *jbd2_alloc_data_tag(gfp_t gfp_flags)
++{
++	return kmem_cache_alloc(jbd_data_tag_cache, gfp_flags);
++}
++
++static inline void jbd2_free_data_tag(struct jbd_data_tag *dtag)
++{
++	kmem_cache_free(jbd_data_tag_cache, dtag);
++}
++
+ /* Primary revoke support */
+ #define JOURNAL_REVOKE_DEFAULT_HASH 256
+ extern int	   jbd2_journal_init_revoke(journal_t *, int);
+@@ -1193,6 +1268,8 @@ do {								           \
+ 
+ static inline int is_journal_aborted(journal_t *journal)
+ {
++    if (journal->j_flags & JBD2_ABORT) 
++        jbd_debug(6, "ext4: journal abort flag has been set somewhere.");
+ 	return journal->j_flags & JBD2_ABORT;
+ }
+ 
+@@ -1238,7 +1315,7 @@ static inline int jbd_space_needed(journ
+ 	if (journal->j_committing_transaction)
+ 		nblocks += atomic_read(&journal->j_committing_transaction->
+ 				       t_outstanding_credits);
+-	return nblocks;
++	return nblocks + 128;
+ }
+ 
+ /*
+@@ -1246,17 +1323,23 @@ static inline int jbd_space_needed(journ
+  */
+ 
+ /* journaling buffer types */
+-#define BJ_None		0	/* Not journaled */
+-#define BJ_Metadata	1	/* Normal journaled metadata */
+-#define BJ_Forget	2	/* Buffer superseded by this transaction */
+-#define BJ_IO		3	/* Buffer is for temporary IO use */
+-#define BJ_Shadow	4	/* Buffer contents being shadowed to the log */
+-#define BJ_LogCtl	5	/* Buffer contains log descriptors */
+-#define BJ_Reserved	6	/* Buffer is reserved for access by journal */
+-#define BJ_Types	7
++#define BJ_None		    0	/* Not journaled */
++#define BJ_Metadata	    1	/* Normal journaled metadata */
++#define BJ_Forget	    2	/* Buffer superseded by this transaction */
++#define BJ_IO		    3	/* Buffer is for temporary IO use */
++#define BJ_Shadow	    4	/* Buffer contents being shadowed to the log */
++#define BJ_LogCtl	    5	/* Buffer contains log descriptors */
++#define BJ_Reserved	    6	/* Buffer is reserved for access by journal */
++#define BJ_Dirtydata    7   /* Buffer contains dirty data that should be written out. */
++#define BJ_Types	    8
+ 
+ extern int jbd_blocks_per_page(struct inode *inode);
+ 
++extern __u32 jbd2_checksum_data(__u32 crc32_sum, struct buffer_head *bh);
++
++/* For testing. */
++#define JBDBF_CHECKPOINT_INTERVAL 30000
++
+ #ifdef __KERNEL__
+ 
+ #define buffer_trace_init(bh)	do {} while (0)
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd_common.h optfs/fs/ext4/jbd_common.h
+--- linux-3.2/fs/ext4/jbd_common.h	2013-10-30 19:25:36.045967977 -0500
++++ optfs/fs/ext4/jbd_common.h	2013-10-30 19:41:33.713929173 -0500
+@@ -25,6 +25,9 @@ BUFFER_FNS(RevokeValid, revokevalid)
+ TAS_BUFFER_FNS(RevokeValid, revokevalid)
+ BUFFER_FNS(Freed, freed)
+ 
++struct journal_head;
++
++/* ext4-ext4: journal head functions usually defined in jbd_common.h */
+ static inline struct buffer_head *jh2bh(struct journal_head *jh)
+ {
+ 	return jh->b_bh;
+@@ -64,5 +67,4 @@ static inline void jbd_unlock_bh_journal
+ {
+ 	bit_spin_unlock(BH_JournalHead, &bh->b_state);
+ }
+-
+ #endif
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs/fs/ext4/journal.c
+--- linux-3.2/fs/ext4/journal.c	2013-10-30 18:30:36.464358233 -0500
++++ optfs/fs/ext4/journal.c	2013-10-30 19:41:33.718929246 -0500
+@@ -25,7 +25,7 @@
+ #include <linux/module.h>
+ #include <linux/time.h>
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/errno.h>
+ #include <linux/slab.h>
+ #include <linux/init.h>
+@@ -44,9 +44,10 @@
+ #include <linux/backing-dev.h>
+ #include <linux/bitops.h>
+ #include <linux/ratelimit.h>
++#include <linux/blkdev.h>
+ 
+ #define CREATE_TRACE_POINTS
+-#include <trace/events/jbd2.h>
++//#include "trace_jbd2.h"
+ 
+ #include <asm/uaccess.h>
+ #include <asm/page.h>
+@@ -61,6 +62,7 @@ EXPORT_SYMBOL(jbd2_journal_get_create_ac
+ EXPORT_SYMBOL(jbd2_journal_get_undo_access);
+ EXPORT_SYMBOL(jbd2_journal_set_triggers);
+ EXPORT_SYMBOL(jbd2_journal_dirty_metadata);
++EXPORT_SYMBOL(jbd2_journal_dirty_data);
+ EXPORT_SYMBOL(jbd2_journal_release_buffer);
+ EXPORT_SYMBOL(jbd2_journal_forget);
+ #if 0
+@@ -91,15 +93,122 @@ EXPORT_SYMBOL(jbd2_journal_invalidatepag
+ EXPORT_SYMBOL(jbd2_journal_try_to_free_buffers);
+ EXPORT_SYMBOL(jbd2_journal_force_commit);
+ EXPORT_SYMBOL(jbd2_journal_file_inode);
+-EXPORT_SYMBOL(jbd2_journal_init_jbd_inode);
++EXPORT_SYMBOL(jbd2_journal_init_jbd2_inode);
+ EXPORT_SYMBOL(jbd2_journal_release_jbd_inode);
+ EXPORT_SYMBOL(jbd2_journal_begin_ordered_truncate);
+ EXPORT_SYMBOL(jbd2_inode_cache);
++EXPORT_SYMBOL(jbd2_checksum_data);
++EXPORT_SYMBOL(jbd2_alloc_data_tag);
++EXPORT_SYMBOL(jbd2_free_data_tag);
++EXPORT_SYMBOL(jbd_data_tag_cache);
+ 
+ static int journal_convert_superblock_v1(journal_t *, journal_superblock_t *);
+ static void __journal_abort_soft (journal_t *journal, int errno);
+ static int jbd2_journal_create_slab(size_t slab_size);
+ 
++/* EXT4BF */
++
++struct timer_list ext4_writeout_timer;
++const int EXT4BF_WRITEOUT_TIME = 10000;
++struct task_struct *writeout_task;
++
++/* support*/
++struct buffer_head	*j_dirty_data_bhs[EXT4BF_DATA_BATCH];
++/* EXT4BF: routine to write out data blocks listed in t_forget list of each
++ * transactions. Mirros __flush_batch from checkpoint.c
++ */
++static void
++__flush_data_batch(int *batch_count)
++{
++	int i;
++	struct blk_plug plug;
++
++	blk_start_plug(&plug);
++	for (i = 0; i < *batch_count; i++)
++		write_dirty_buffer(j_dirty_data_bhs[i], WRITE_SYNC);
++	blk_finish_plug(&plug);
++
++	for (i = 0; i < *batch_count; i++) {
++		struct buffer_head *bh = j_dirty_data_bhs[i];
++		clear_buffer_jwrite(bh);
++		BUFFER_TRACE(bh, "brelse");
++		put_bh(bh);
++	}
++	*batch_count = 0;
++}
++
++
++/* */
++
++static void write_out_dirty_blocks(journal_t *journal)  {
++	read_lock(&journal->j_state_lock);
++    transaction_t *commit_transaction =  
++					journal->j_running_transaction; 
++	read_unlock(&journal->j_state_lock);
++    if (!commit_transaction) return;
++    mutex_lock(&commit_transaction->t_dirty_data_mutex);
++    jbd_debug(6, "Doing early processing of blocks for transaction %lu\n",
++            commit_transaction->t_tid);
++    /* EXT4BF - ext4: attempt to read the data blocks inside the t_forget list of the
++     * the current transaction. */
++    struct journal_head *jh, *jh_next;
++    jh = commit_transaction->t_dirty_data_list;
++    int data_batch_count = 0;
++    /* List of buffer heads to submit. */
++    while(1) {
++        if (!jh) {
++            jbd_debug(6, "EXT4BF: got empty forget list\n");
++            break;
++        }
++        struct buffer_head *bh = jh2bh(jh);
++        if (!bh) break;
++        jbd_lock_bh_state(bh);
++        if (bh->b_blocktype == 1){
++            jbd_debug(6, "got block %lu in forget list\n", bh->b_blocknr);
++            /* Process the data buffer. */
++            get_bh(bh);
++            set_buffer_jwrite(bh);
++            j_dirty_data_bhs[data_batch_count++] = bh;
++            if (data_batch_count == EXT4BF_DATA_BATCH) {
++                __flush_data_batch(&data_batch_count);
++            }
++        }
++	    jbd_unlock_bh_state(bh);
++        /* If we are looping back, break */
++        if (jh->b_tnext == commit_transaction->t_dirty_data_list) {
++            /* We're done; flush remaining buffers and exit. */
++            if (data_batch_count) {
++                __flush_data_batch(&data_batch_count);
++            }
++            if (jh) jbd2_journal_refile_buffer(journal, jh);
++            break;
++        }
++        jh_next = jh->b_tnext;
++        if (jh) jbd2_journal_refile_buffer(journal, jh);
++		jh = jh_next;
++    }
++    commit_transaction->t_num_dirty_blocks = 0;
++    mutex_unlock(&commit_transaction->t_dirty_data_mutex);
++    /* */
++}
++
++void process_writeout_items(void *data) {
++    journal_t *journal = (journal_t*) data;
++    jbd_debug(6, "EXT4BF: got journal %p in process_writeout_items\n", journal);
++    while(!kthread_should_stop()) {
++        jbd_debug(6, "EXT4BF: Inside writeout!\n");
++        write_out_dirty_blocks(journal);
++        set_current_state(TASK_INTERRUPTIBLE);
++        schedule();
++    }
++}
++
++void periodic_wakeup_writeout_task() {
++    if (writeout_task) wake_up_process(writeout_task);
++    mod_timer(&ext4_writeout_timer, jiffies + msecs_to_jiffies(EXT4BF_WRITEOUT_TIME));
++}
++/* */
++
+ /*
+  * Helper function used to manage commit timeouts
+  */
+@@ -226,7 +335,7 @@ static int jbd2_journal_start_thread(jou
+ {
+ 	struct task_struct *t;
+ 
+-	t = kthread_run(kjournald2, journal, "jbd2/%s",
++	t = kthread_run(kjournald2, journal, "jbd/%s",
+ 			journal->j_devname);
+ 	if (IS_ERR(t))
+ 		return PTR_ERR(t);
+@@ -302,6 +411,9 @@ int jbd2_journal_write_metadata_buffer(t
+ 	struct buffer_head *bh_in = jh2bh(jh_in);
+ 	journal_t *journal = transaction->t_journal;
+ 
++	jbd_debug(6, "ext4: requested to journal write metadata %lu to list\n", bh_in->b_blocknr);
++    jbd_debug(6, "ext4 buffer has data? %d\n", bh_in->b_blocktype);
++
+ 	/*
+ 	 * The buffer really shouldn't be locked: only the current committing
+ 	 * transaction is allowed to write it, so nobody else is allowed
+@@ -427,17 +539,39 @@ repeat:
+ 	 * copying is moved to the transaction's shadow queue.
+ 	 */
+ 	JBUFFER_TRACE(jh_in, "file as BJ_Shadow");
++	jbd_debug(6, "EXT4BF: writing out block %lu as shadowed block (original metadata).\n",
++	        (jh2bh(jh_in))->b_blocknr);
+ 	spin_lock(&journal->j_list_lock);
+ 	__jbd2_journal_file_buffer(jh_in, transaction, BJ_Shadow);
+ 	spin_unlock(&journal->j_list_lock);
+ 	jbd_unlock_bh_state(bh_in);
+ 
+ 	JBUFFER_TRACE(new_jh, "file as BJ_IO");
++	jbd_debug(6, "EXT4BF: writing out block %lu as part of journal I/O\n",
++	        (jh2bh(new_jh))->b_blocknr);
+ 	jbd2_journal_file_buffer(new_jh, transaction, BJ_IO);
+ 
+ 	return do_escape | (done_copy_out << 1);
+ }
+ 
++/* ext4: just write out data blocks in barrierfree without copying them into
++ * the journal. */
++void jbd_write_data_buffer(transaction_t *transaction,
++        struct journal_head *jh_in)
++{
++	journal_t *journal = transaction->t_journal;
++	struct buffer_head *bh_in = jh2bh(jh_in);
++    
++    jbd_debug(6, "EXT4BF: adding data block %lu to write-later list\n",
++            (jh2bh(jh_in))->b_blocknr);
++    
++	jbd_lock_bh_state(bh_in);
++    spin_lock(&journal->j_list_lock);
++    __jbd2_journal_file_buffer(jh_in, transaction, BJ_Forget);
++    spin_unlock(&journal->j_list_lock);
++    jbd_unlock_bh_state(bh_in);
++}
++
+ /*
+  * Allocation code for the journal file.  Manage the space left in the
+  * journal, so that we can begin checkpointing when appropriate.
+@@ -595,36 +729,7 @@ int jbd2_journal_start_commit(journal_t 
+  */
+ int jbd2_trans_will_send_data_barrier(journal_t *journal, tid_t tid)
+ {
+-	int ret = 0;
+-	transaction_t *commit_trans;
+-
+-	if (!(journal->j_flags & JBD2_BARRIER))
+-		return 0;
+-	read_lock(&journal->j_state_lock);
+-	/* Transaction already committed? */
+-	if (tid_geq(journal->j_commit_sequence, tid))
+-		goto out;
+-	commit_trans = journal->j_committing_transaction;
+-	if (!commit_trans || commit_trans->t_tid != tid) {
+-		ret = 1;
+-		goto out;
+-	}
+-	/*
+-	 * Transaction is being committed and we already proceeded to
+-	 * submitting a flush to fs partition?
+-	 */
+-	if (journal->j_fs_dev != journal->j_dev) {
+-		if (!commit_trans->t_need_data_flush ||
+-		    commit_trans->t_state >= T_COMMIT_DFLUSH)
+-			goto out;
+-	} else {
+-		if (commit_trans->t_state >= T_COMMIT_JFLUSH)
+-			goto out;
+-	}
+-	ret = 1;
+-out:
+-	read_unlock(&journal->j_state_lock);
+-	return ret;
++    return 0;
+ }
+ EXPORT_SYMBOL(jbd2_trans_will_send_data_barrier);
+ 
+@@ -853,11 +958,11 @@ static const struct file_operations jbd2
+ 	.release        = jbd2_seq_info_release,
+ };
+ 
+-static struct proc_dir_entry *proc_jbd2_stats;
++static struct proc_dir_entry *proc_jbd_stats;
+ 
+ static void jbd2_stats_proc_init(journal_t *journal)
+ {
+-	journal->j_proc_entry = proc_mkdir(journal->j_devname, proc_jbd2_stats);
++	journal->j_proc_entry = proc_mkdir(journal->j_devname, proc_jbd_stats);
+ 	if (journal->j_proc_entry) {
+ 		proc_create_data("info", S_IRUGO, journal->j_proc_entry,
+ 				 &jbd2_seq_info_fops, journal);
+@@ -867,7 +972,7 @@ static void jbd2_stats_proc_init(journal
+ static void jbd2_stats_proc_exit(journal_t *journal)
+ {
+ 	remove_proc_entry("info", journal->j_proc_entry);
+-	remove_proc_entry(journal->j_devname, proc_jbd2_stats);
++	remove_proc_entry(journal->j_devname, proc_jbd_stats);
+ }
+ 
+ /*
+@@ -1808,6 +1913,7 @@ static void __journal_abort_soft (journa
+ 
+ void jbd2_journal_abort(journal_t *journal, int errno)
+ {
++    jbd_debug(6, "EXT4BF: aborting the journal!");
+ 	__journal_abort_soft(journal, errno);
+ }
+ 
+@@ -1880,10 +1986,8 @@ int jbd2_journal_blocks_per_page(struct 
+  */
+ size_t journal_tag_bytes(journal_t *journal)
+ {
+-	if (JBD2_HAS_INCOMPAT_FEATURE(journal, JBD2_FEATURE_INCOMPAT_64BIT))
+-		return JBD2_TAG_SIZE64;
+-	else
+-		return JBD2_TAG_SIZE32;
++    /* EXT4BF: Always more than 32 bytes because of the checksum. */
++	return JBD2_TAG_SIZE64;
+ }
+ 
+ /*
+@@ -1896,7 +2000,7 @@ size_t journal_tag_bytes(journal_t *jour
+  * with a 4k block file system.)  For blocks smaller than a page, we
+  * use a SLAB allocator.  There are slab caches for each block size,
+  * which are allocated at mount time, if necessary, and we only free
+- * (all of) the slab caches when/if the jbd2 module is unloaded.  For
++ * (all of) the slab caches when/if the jbd module is unloaded.  For
+  * this reason we don't need to a mutex to protect access to
+  * jbd2_slab[] allocating or releasing memory; only in
+  * jbd2_journal_create_slab().
+@@ -1905,8 +2009,8 @@ size_t journal_tag_bytes(journal_t *jour
+ static struct kmem_cache *jbd2_slab[JBD2_MAX_SLABS];
+ 
+ static const char *jbd2_slab_names[JBD2_MAX_SLABS] = {
+-	"jbd2_1k", "jbd2_2k", "jbd2_4k", "jbd2_8k",
+-	"jbd2_16k", "jbd2_32k", "jbd2_64k", "jbd2_128k"
++	"jbd_1k", "jbd_2k", "jbd_4k", "jbd_8k",
++	"jbd_16k", "jbd_32k", "jbd_64k", "jbd_128k"
+ };
+ 
+ 
+@@ -2118,6 +2222,8 @@ struct journal_head *jbd2_journal_add_jo
+ 	struct journal_head *jh;
+ 	struct journal_head *new_jh = NULL;
+ 
++	jbd_debug(6, "EXT4BF: getting journal head for block num: %lu\n", bh->b_blocknr);
++
+ repeat:
+ 	if (!buffer_jbd(bh)) {
+ 		new_jh = journal_alloc_journal_head();
+@@ -2217,7 +2323,7 @@ void jbd2_journal_put_journal_head(struc
+ /*
+  * Initialize jbd inode head
+  */
+-void jbd2_journal_init_jbd_inode(struct jbd2_inode *jinode, struct inode *inode)
++void jbd2_journal_init_jbd2_inode(struct jbd2_inode *jinode, struct inode *inode)
+ {
+ 	jinode->i_transaction = NULL;
+ 	jinode->i_next_transaction = NULL;
+@@ -2264,25 +2370,25 @@ restart:
+ u8 jbd2_journal_enable_debug __read_mostly;
+ EXPORT_SYMBOL(jbd2_journal_enable_debug);
+ 
+-#define JBD2_DEBUG_NAME "jbd2-debug"
++#define JBD2_DEBUG_NAME "jbd-debug"
+ 
+-static struct dentry *jbd2_debugfs_dir;
+-static struct dentry *jbd2_debug;
++static struct dentry *jbd_debugfs_dir;
++static struct dentry *jbd_debug;
+ 
+ static void __init jbd2_create_debugfs_entry(void)
+ {
+-	jbd2_debugfs_dir = debugfs_create_dir("jbd2", NULL);
+-	if (jbd2_debugfs_dir)
+-		jbd2_debug = debugfs_create_u8(JBD2_DEBUG_NAME,
++	jbd_debugfs_dir = debugfs_create_dir("jbd", NULL);
++	if (jbd_debugfs_dir)
++		jbd_debug = debugfs_create_u8(JBD2_DEBUG_NAME,
+ 					       S_IRUGO | S_IWUSR,
+-					       jbd2_debugfs_dir,
++					       jbd_debugfs_dir,
+ 					       &jbd2_journal_enable_debug);
+ }
+ 
+ static void __exit jbd2_remove_debugfs_entry(void)
+ {
+-	debugfs_remove(jbd2_debug);
+-	debugfs_remove(jbd2_debugfs_dir);
++	debugfs_remove(jbd_debug);
++	debugfs_remove(jbd_debugfs_dir);
+ }
+ 
+ #else
+@@ -2303,12 +2409,12 @@ static void __exit jbd2_remove_debugfs_e
+ 
+ static void __init jbd2_create_jbd_stats_proc_entry(void)
+ {
+-	proc_jbd2_stats = proc_mkdir(JBD2_STATS_PROC_NAME, NULL);
++	proc_jbd_stats = proc_mkdir(JBD2_STATS_PROC_NAME, NULL);
+ }
+ 
+ static void __exit jbd2_remove_jbd_stats_proc_entry(void)
+ {
+-	if (proc_jbd2_stats)
++	if (proc_jbd_stats)
+ 		remove_proc_entry(JBD2_STATS_PROC_NAME, NULL);
+ }
+ 
+@@ -2320,6 +2426,7 @@ static void __exit jbd2_remove_jbd_stats
+ #endif
+ 
+ struct kmem_cache *jbd2_handle_cache, *jbd2_inode_cache;
++struct kmem_cache *jbd_data_tag_cache;
+ 
+ static int __init journal_init_handle_cache(void)
+ {
+@@ -2334,6 +2441,12 @@ static int __init journal_init_handle_ca
+ 		kmem_cache_destroy(jbd2_handle_cache);
+ 		return -ENOMEM;
+ 	}
++	jbd_data_tag_cache = KMEM_CACHE(jbd_data_tag, 0);
++	if (jbd_data_tag_cache == NULL) {
++		printk(KERN_EMERG "JBDBF: failed to create data tag cache\n");
++		kmem_cache_destroy(jbd_data_tag_cache);
++		return -ENOMEM;
++	}
+ 	return 0;
+ }
+ 
+@@ -2343,7 +2456,8 @@ static void jbd2_journal_destroy_handle_
+ 		kmem_cache_destroy(jbd2_handle_cache);
+ 	if (jbd2_inode_cache)
+ 		kmem_cache_destroy(jbd2_inode_cache);
+-
++	if (jbd_data_tag_cache)
++		kmem_cache_destroy(jbd_data_tag_cache);
+ }
+ 
+ /*
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal-head.h optfs/fs/ext4/journal-head.h
+--- linux-3.2/fs/ext4/journal-head.h	1969-12-31 18:00:00.000000000 -0600
++++ optfs/fs/ext4/journal-head.h	2013-10-30 19:41:33.713929173 -0500
+@@ -0,0 +1,106 @@
++/*
++ * include/linux/journal-bf-head.h
++ *
++ * buffer_head fields for JBD
++ *
++ * 27 May 2001 Andrew Morton
++ *	Created - pulled out of fs.h
++ */
++
++#ifndef JOURNAL_HEAD_H_INCLUDED
++#define JOURNAL_HEAD_H_INCLUDED
++
++typedef unsigned int		tid_t;		/* Unique transaction ID */
++typedef struct transaction_bf_s	transaction_t;	/* Compound transaction type */
++
++struct buffer_head;
++
++struct journal_head {
++	/*
++	 * Points back to our buffer_head. [jbd_lock_bh_journal_head()]
++	 */
++	struct buffer_head *b_bh;
++
++	/*
++	 * Reference count - see description in journal.c
++	 * [jbd_lock_bh_journal_head()]
++	 */
++	int b_jcount;
++
++	/*
++	 * Journalling list for this buffer [jbd_lock_bh_state()]
++	 */
++	unsigned b_jlist;
++
++	/*
++	 * This flag signals the buffer has been modified by
++	 * the currently running transaction
++	 * [jbd_lock_bh_state()]
++	 */
++	unsigned b_modified;
++
++	/*
++	 * This feild tracks the last transaction id in which this buffer
++	 * has been cowed
++	 * [jbd_lock_bh_state()]
++	 */
++	tid_t b_cow_tid;
++
++	/*
++	 * Copy of the buffer data frozen for writing to the log.
++	 * [jbd_lock_bh_state()]
++	 */
++	char *b_frozen_data;
++
++	/*
++	 * Pointer to a saved copy of the buffer containing no uncommitted
++	 * deallocation references, so that allocations can avoid overwriting
++	 * uncommitted deletes. [jbd_lock_bh_state()]
++	 */
++	char *b_committed_data;
++
++	/*
++	 * Pointer to the compound transaction which owns this buffer's
++	 * metadata: either the running transaction or the committing
++	 * transaction (if there is one).  Only applies to buffers on a
++	 * transaction's data or metadata journaling list.
++	 * [j_list_lock] [jbd_lock_bh_state()]
++	 */
++	transaction_t *b_transaction;
++
++	/*
++	 * Pointer to the running compound transaction which is currently
++	 * modifying the buffer's metadata, if there was already a transaction
++	 * committing it when the new transaction touched it.
++	 * [t_list_lock] [jbd_lock_bh_state()]
++	 */
++	transaction_t *b_next_transaction;
++
++	/*
++	 * Doubly-linked list of buffers on a transaction's data, metadata or
++	 * forget queue. [t_list_lock] [jbd_lock_bh_state()]
++	 */
++	struct journal_head *b_tnext, *b_tprev;
++
++	/*
++	 * Pointer to the compound transaction against which this buffer
++	 * is checkpointed.  Only dirty buffers can be checkpointed.
++	 * [j_list_lock]
++	 */
++	transaction_t *b_cp_transaction;
++
++	/*
++	 * Doubly-linked list of buffers still remaining to be flushed
++	 * before an old transaction can be checkpointed.
++	 * [j_list_lock]
++	 */
++	struct journal_head *b_cpnext, *b_cpprev;
++
++	/* Trigger type */
++	struct jbd2_buffer_trigger_type *b_triggers;
++
++	/* Trigger type for the committing transaction's frozen data */
++	struct jbd2_buffer_trigger_type *b_frozen_triggers;
++};
++
++#endif		/* JOURNAL_HEAD_H_INCLUDED */
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/Kconfig optfs/fs/ext4/Kconfig
+--- linux-3.2/fs/ext4/Kconfig	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/Kconfig	1969-12-31 18:00:00.000000000 -0600
+@@ -1,85 +0,0 @@
+-config EXT4_FS
+-	tristate "The Extended 4 (ext4) filesystem"
+-	select JBD2
+-	select CRC16
+-	help
+-	  This is the next generation of the ext3 filesystem.
+-
+-	  Unlike the change from ext2 filesystem to ext3 filesystem,
+-	  the on-disk format of ext4 is not forwards compatible with
+-	  ext3; it is based on extent maps and it supports 48-bit
+-	  physical block numbers.  The ext4 filesystem also supports delayed
+-	  allocation, persistent preallocation, high resolution time stamps,
+-	  and a number of other features to improve performance and speed
+-	  up fsck time.  For more information, please see the web pages at
+-	  http://ext4.wiki.kernel.org.
+-
+-	  The ext4 filesystem will support mounting an ext3
+-	  filesystem; while there will be some performance gains from
+-	  the delayed allocation and inode table readahead, the best
+-	  performance gains will require enabling ext4 features in the
+-	  filesystem, or formatting a new filesystem as an ext4
+-	  filesystem initially.
+-
+-	  To compile this file system support as a module, choose M here. The
+-	  module will be called ext4.
+-
+-	  If unsure, say N.
+-
+-config EXT4_USE_FOR_EXT23
+-	bool "Use ext4 for ext2/ext3 file systems"
+-	depends on EXT4_FS
+-	depends on EXT3_FS=n || EXT2_FS=n
+-	default y
+-	help
+-	  Allow the ext4 file system driver code to be used for ext2 or
+-	  ext3 file system mounts.  This allows users to reduce their
+-	  compiled kernel size by using one file system driver for
+-	  ext2, ext3, and ext4 file systems.
+-
+-config EXT4_FS_XATTR
+-	bool "Ext4 extended attributes"
+-	depends on EXT4_FS
+-	default y
+-	help
+-	  Extended attributes are name:value pairs associated with inodes by
+-	  the kernel or by users (see the attr(5) manual page, or visit
+-	  <http://acl.bestbits.at/> for details).
+-
+-	  If unsure, say N.
+-
+-	  You need this for POSIX ACL support on ext4.
+-
+-config EXT4_FS_POSIX_ACL
+-	bool "Ext4 POSIX Access Control Lists"
+-	depends on EXT4_FS_XATTR
+-	select FS_POSIX_ACL
+-	help
+-	  POSIX Access Control Lists (ACLs) support permissions for users and
+-	  groups beyond the owner/group/world scheme.
+-
+-	  To learn more about Access Control Lists, visit the POSIX ACLs for
+-	  Linux website <http://acl.bestbits.at/>.
+-
+-	  If you don't know what Access Control Lists are, say N
+-
+-config EXT4_FS_SECURITY
+-	bool "Ext4 Security Labels"
+-	depends on EXT4_FS_XATTR
+-	help
+-	  Security labels support alternative access control models
+-	  implemented by security modules like SELinux.  This option
+-	  enables an extended attribute handler for file security
+-	  labels in the ext4 filesystem.
+-
+-	  If you are not using a security module that requires using
+-	  extended attributes for file security labels, say N.
+-
+-config EXT4_DEBUG
+-	bool "EXT4 debugging support"
+-	depends on EXT4_FS
+-	help
+-	  Enables run-time debugging support for the ext4 filesystem.
+-
+-	  If you select Y here, then you will be able to turn on debugging
+-	  with a command such as "echo 1 > /sys/kernel/debug/ext4/mballoc-debug"
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/load.sh optfs/fs/ext4/load.sh
+--- linux-3.2/fs/ext4/load.sh	1969-12-31 18:00:00.000000000 -0600
++++ optfs/fs/ext4/load.sh	2013-10-30 19:41:33.718929246 -0500
+@@ -0,0 +1,10 @@
++umount /mnt/mydisk
++modprobe -r ext4
++make
++make modules_install
++echo "Loading module"
++modprobe ext4
++echo "Mounting fs"
++mount -t ext4 -o nodelalloc,nobarrier,nouser_xattr,noacl,data=journal  /dev/sdb1 /mnt/mydisk
++echo "Fs contents"
++ls /mnt/mydisk/
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/Makefile optfs/fs/ext4/Makefile
+--- linux-3.2/fs/ext4/Makefile	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/Makefile	2013-10-30 19:41:33.655928324 -0500
+@@ -1,14 +1,24 @@
+ #
+-# Makefile for the linux ext4-filesystem routines.
++# Makefile for the linux journaling routines.
+ #
+ 
+-obj-$(CONFIG_EXT4_FS) += ext4.o
++obj-m += jbd.o ext4.o
+ 
+-ext4-y	:= balloc.o bitmap.o dir.o file.o fsync.o ialloc.o inode.o page-io.o \
+-		ioctl.o namei.o super.o symlink.o hash.o resize.o extents.o \
+-		ext4_jbd2.o migrate.o mballoc.o block_validity.o move_extent.o \
+-		mmp.o indirect.o
+-
+-ext4-$(CONFIG_EXT4_FS_XATTR)		+= xattr.o xattr_user.o xattr_trusted.o
+-ext4-$(CONFIG_EXT4_FS_POSIX_ACL)	+= acl.o
+-ext4-$(CONFIG_EXT4_FS_SECURITY)		+= xattr_security.o
++jbd-objs := transaction.o commit.o recovery.o checkpoint.o revoke.o journal.o 
++
++ext4-objs     := balloc.o bitmap.o dir.o file.o fsync.o ialloc.o inode.o page-io.o \
++                ioctl.o namei.o super.o symlink.o hash.o resize.o extents.o \
++                ext4_jbd2.o migrate.o mballoc.o block_validity.o move_extent.o \
++                mmp.o indirect.o \
++                xattr.o xattr_user.o xattr_trusted.o\
++                acl.o \
++                xattr_security.o 
++
++all:
++	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
++
++modules_install:
++	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules_install
++
++clean:
++	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/mballoc.c optfs/fs/ext4/mballoc.c
+--- linux-3.2/fs/ext4/mballoc.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/mballoc.c	2013-10-30 19:41:33.732929449 -0500
+@@ -24,7 +24,10 @@
+ #include "mballoc.h"
+ #include <linux/debugfs.h>
+ #include <linux/slab.h>
+-#include <trace/events/ext4.h>
++
++/* EXT4BF: extra headers for barrier-free ext4. */
++#include <linux/time.h>
++/* */
+ 
+ /*
+  * MUSTDO:
+@@ -1108,9 +1111,8 @@ err:
+  * block group lock of all groups for this page; do not hold the BG lock when
+  * calling this routine!
+  */
+-static noinline_for_stack int
+-ext4_mb_load_buddy(struct super_block *sb, ext4_group_t group,
+-					struct ext4_buddy *e4b)
++int ext4_mb_load_buddy(struct super_block *sb, ext4_group_t group,
++        struct ext4_buddy *e4b)
+ {
+ 	int blocks_per_page;
+ 	int block;
+@@ -1236,7 +1238,7 @@ err:
+ 	return ret;
+ }
+ 
+-static void ext4_mb_unload_buddy(struct ext4_buddy *e4b)
++void ext4_mb_unload_buddy(struct ext4_buddy *e4b)
+ {
+ 	if (e4b->bd_bitmap_page)
+ 		page_cache_release(e4b->bd_bitmap_page);
+@@ -1302,8 +1304,8 @@ void ext4_set_bits(void *bm, int cur, in
+ 	}
+ }
+ 
+-static void mb_free_blocks(struct inode *inode, struct ext4_buddy *e4b,
+-			  int first, int count)
++void mb_free_blocks(struct inode *inode, struct ext4_buddy *e4b,
++        int first, int count)
+ {
+ 	int block = 0;
+ 	int max = 0;
+@@ -2080,7 +2082,7 @@ repeat:
+ 			 * Someone more lucky has already allocated it.
+ 			 * The only thing we can do is just take first
+ 			 * found block(s)
+-			printk(KERN_DEBUG "EXT4-fs: someone won our chunk\n");
++			printk(KERN_DEBUG "EXT4BF-fs: someone won our chunk\n");
+ 			 */
+ 			ac->ac_b_ex.fe_group = 0;
+ 			ac->ac_b_ex.fe_start = 0;
+@@ -2224,7 +2226,7 @@ int ext4_mb_add_groupinfo(struct super_b
+ 			EXT4_DESC_PER_BLOCK_BITS(sb);
+ 		meta_group_info = kmalloc(metalen, GFP_KERNEL);
+ 		if (meta_group_info == NULL) {
+-			ext4_msg(sb, KERN_ERR, "EXT4-fs: can't allocate mem "
++			ext4_msg(sb, KERN_ERR, "EXT4BF-fs: can't allocate mem "
+ 				 "for a buddy group");
+ 			goto exit_meta_group_info;
+ 		}
+@@ -2238,7 +2240,7 @@ int ext4_mb_add_groupinfo(struct super_b
+ 
+ 	meta_group_info[i] = kmem_cache_alloc(cachep, GFP_KERNEL);
+ 	if (meta_group_info[i] == NULL) {
+-		ext4_msg(sb, KERN_ERR, "EXT4-fs: can't allocate buddy mem");
++		ext4_msg(sb, KERN_ERR, "EXT4BF-fs: can't allocate buddy mem");
+ 		goto exit_group_info;
+ 	}
+ 	memset(meta_group_info[i], 0, kmem_cache_size(cachep));
+@@ -2415,7 +2417,7 @@ static int ext4_groupinfo_create_slab(si
+ 	mutex_unlock(&ext4_grpinfo_slab_create_mutex);
+ 	if (!cachep) {
+ 		printk(KERN_EMERG
+-		       "EXT4-fs: no memory for groupinfo slab cache\n");
++		       "EXT4BF-fs: no memory for groupinfo slab cache\n");
+ 		return -ENOMEM;
+ 	}
+ 
+@@ -2629,12 +2631,106 @@ static inline int ext4_issue_discard(str
+ 			 ext4_group_first_block_no(sb, block_group));
+ 	count = EXT4_C2B(EXT4_SB(sb), count);
+ 	trace_ext4_discard_blocks(sb,
+-			(unsigned long long) discard_block, count);
++//			(unsigned long long) discard_block, count);
+ 	return sb_issue_discard(sb, discard_block, count, GFP_NOFS, 0);
+ }
+ 
++int inside_mb_free_metadata = 0;
++int dr_added = 0;
++
++/*
++ * ext4: This function is called by the file system once a delay (currently
++ * 30 seconds) has elapsed since the block was freed. 
++ */
++void release_blocks_after_delay(struct super_block *sb, int delay, int finish)
++{
++    /* Do not modify the reservation trees if another thread is in the middle
++     * of doing that. 
++     */
++	if (inside_mb_free_metadata) {
++		return;
++	}
++	struct ext4_buddy e4b;
++	struct ext4_group_info *db;
++	int err, count = 0, count2 = 0;
++	struct ext4_free_data *entry;
++	struct list_head *l, *ltmp;
++	unsigned int diff;
++	int dr_count = 0;
++    
++	spin_lock(&dr_lock);
++	list_for_each_safe(l, ltmp, &ext4_delayed_reuse_list) {
++		entry = list_entry(l, struct ext4_free_data, list);
++		dr_added--;
++		spin_unlock(&dr_lock);
++
++        diff = jiffies_to_msecs(jiffies - entry->d_ftime);
++        
++        dr_count++;
++
++        /* Under normal circumstances, only do 100 entries at a time, and don't
++         * process items which haven't undergone the 30 second delay.
++         *
++         * However, if the file system is unmounting, the finish flag is set,
++         * and in this case, process everything.
++         */
++        if (finish) goto delete_item;
++
++        if (dr_count >= 50) goto reuse_loop_done;
++
++        if (diff < delay) {
++            goto reuse_loop_done;
++        }
++
++		mb_debug(1, "gonna free %u blocks in group %u (0x%p):",
++			 entry->count, entry->group, entry);
++        if (test_opt(sb, DISCARD))
++            ext4_issue_discard(sb, entry->group,
++                    entry->start_cluster, entry->count);
++		err = ext4_mb_load_buddy(sb, entry->group, &e4b);
++		/* we expect to find existing buddy because it's pinned */
++		BUG_ON(err != 0);
++
++		db = e4b.bd_info;
++		/* there are blocks to put in buddy to make them really free */
++		count += entry->count;
++		count2++;
++		ext4_lock_group(sb, entry->group);
++		/* Take it out of per group rb tree */
++		rb_erase(&entry->node, &(db->bb_free_root));
++        mb_free_blocks(NULL, &e4b, entry->start_cluster, entry->count);
++
++		/*
++		 * Clear the trimmed flag for the group so that the next
++		 * ext4_trim_fs can trim it.
++		 * If the volume is mounted with -o discard, online discard
++		 * is supported and the free blocks will be trimmed online.
++		 */
++		if (!test_opt(sb, DISCARD))
++			EXT4_MB_GRP_CLEAR_TRIMMED(db);
++
++		if (!db->bb_free_root.rb_node) {
++			/* No more items in the per group rb tree
++			 * balance refcounts from ext4_mb_free_metadata()
++			 */
++			page_cache_release(e4b.bd_buddy_page);
++			page_cache_release(e4b.bd_bitmap_page);
++		}
++		ext4_unlock_group(sb, entry->group);
++		ext4_mb_unload_buddy(&e4b);
++delete_item:
++	    spin_lock(&dr_lock);
++		list_del(l);
++		kmem_cache_free(ext4_free_ext_cachep, entry);
++	}
++    spin_unlock(&dr_lock);
++
++reuse_loop_done:
++	mb_debug(1, "freed %u blocks in %u structures\n", count, count2);
++}
++
+ /*
+- * This function is called by the jbd2 layer once the commit has finished,
++ * This function is called by the jbd layer once the commit has finished,
+  * so we know we can free the blocks that were released with that commit.
+  */
+ static void release_blocks_on_commit(journal_t *journal, transaction_t *txn)
+@@ -2649,6 +2745,16 @@ static void release_blocks_on_commit(jou
+ 	list_for_each_safe(l, ltmp, &txn->t_private_list) {
+ 		entry = list_entry(l, struct ext4_free_data, list);
+ 
++#ifdef DELAYED_REUSE
++		spin_lock(&dr_lock);
++		dr_added++;
++		entry->d_ftime = jiffies;
++		list_add_tail(&entry->list, &ext4_delayed_reuse_list);
++		if (dr_added >= 10) {
++			if (delay_reuse_task) wake_up_process(delay_reuse_task);
++		}
++		spin_unlock(&dr_lock);
++#else
+ 		mb_debug(1, "gonna free %u blocks in group %u (0x%p):",
+ 			 entry->count, entry->group, entry);
+ 
+@@ -2688,6 +2794,7 @@ static void release_blocks_on_commit(jou
+ 		ext4_unlock_group(sb, entry->group);
+ 		kmem_cache_free(ext4_free_ext_cachep, entry);
+ 		ext4_mb_unload_buddy(&e4b);
++#endif
+ 	}
+ 
+ 	mb_debug(1, "freed %u blocks in %u structures\n", count, count2);
+@@ -3108,10 +3215,6 @@ static void ext4_mb_collect_stats(struct
+ 			atomic_inc(&sbi->s_bal_breaks);
+ 	}
+ 
+-	if (ac->ac_op == EXT4_MB_HISTORY_ALLOC)
+-		trace_ext4_mballoc_alloc(ac);
+-	else
+-		trace_ext4_mballoc_prealloc(ac);
+ }
+ 
+ /*
+@@ -3638,10 +3741,6 @@ ext4_mb_release_inode_pa(struct ext4_bud
+ 			 (unsigned) next - bit, (unsigned) group);
+ 		free += next - bit;
+ 
+-		trace_ext4_mballoc_discard(sb, NULL, group, bit, next - bit);
+-		trace_ext4_mb_release_inode_pa(pa, (grp_blk_start +
+-						    EXT4_C2B(sbi, bit)),
+-					       next - bit);
+ 		mb_free_blocks(pa->pa_inode, e4b, bit, next - bit);
+ 		bit = next + 1;
+ 	}
+@@ -3821,7 +3920,6 @@ void ext4_discard_preallocations(struct 
+ 	}
+ 
+ 	mb_debug(1, "discard preallocation for inode %lu\n", inode->i_ino);
+-	trace_ext4_discard_preallocations(inode);
+ 
+ 	INIT_LIST_HEAD(&list);
+ 
+@@ -3916,11 +4014,11 @@ static void ext4_mb_show_ac(struct ext4_
+ 	    (EXT4_SB(sb)->s_mount_flags & EXT4_MF_FS_ABORTED))
+ 		return;
+ 
+-	ext4_msg(ac->ac_sb, KERN_ERR, "EXT4-fs: Can't allocate:"
++	ext4_msg(ac->ac_sb, KERN_ERR, "EXT4BF-fs: Can't allocate:"
+ 			" Allocation context details:");
+-	ext4_msg(ac->ac_sb, KERN_ERR, "EXT4-fs: status %d flags %d",
++	ext4_msg(ac->ac_sb, KERN_ERR, "EXT4BF-fs: status %d flags %d",
+ 			ac->ac_status, ac->ac_flags);
+-	ext4_msg(ac->ac_sb, KERN_ERR, "EXT4-fs: orig %lu/%lu/%lu@%lu, "
++	ext4_msg(ac->ac_sb, KERN_ERR, "EXT4BF-fs: orig %lu/%lu/%lu@%lu, "
+ 		 	"goal %lu/%lu/%lu@%lu, "
+ 			"best %lu/%lu/%lu@%lu cr %d",
+ 			(unsigned long)ac->ac_o_ex.fe_group,
+@@ -3936,9 +4034,9 @@ static void ext4_mb_show_ac(struct ext4_
+ 			(unsigned long)ac->ac_b_ex.fe_len,
+ 			(unsigned long)ac->ac_b_ex.fe_logical,
+ 			(int)ac->ac_criteria);
+-	ext4_msg(ac->ac_sb, KERN_ERR, "EXT4-fs: %lu scanned, %d found",
++	ext4_msg(ac->ac_sb, KERN_ERR, "EXT4BF-fs: %lu scanned, %d found",
+ 		 ac->ac_ex_scanned, ac->ac_found);
+-	ext4_msg(ac->ac_sb, KERN_ERR, "EXT4-fs: groups: ");
++	ext4_msg(ac->ac_sb, KERN_ERR, "EXT4BF-fs: groups: ");
+ 	ngroups = ext4_get_groups_count(sb);
+ 	for (i = 0; i < ngroups; i++) {
+ 		struct ext4_group_info *grp = ext4_get_group_info(sb, i);
+@@ -4439,6 +4537,7 @@ static noinline_for_stack int
+ ext4_mb_free_metadata(handle_t *handle, struct ext4_buddy *e4b,
+ 		      struct ext4_free_data *new_entry)
+ {
++    inside_mb_free_metadata = 1;
+ 	ext4_group_t group = e4b->bd_group;
+ 	ext4_grpblk_t cluster;
+ 	struct ext4_free_data *entry;
+@@ -4514,6 +4613,7 @@ ext4_mb_free_metadata(handle_t *handle, 
+ 	spin_lock(&sbi->s_md_lock);
+ 	list_add(&new_entry->list, &handle->h_transaction->t_private_list);
+ 	spin_unlock(&sbi->s_md_lock);
++	inside_mb_free_metadata = 0;
+ 	return 0;
+ }
+ 
+@@ -4558,7 +4658,7 @@ void ext4_free_blocks(handle_t *handle, 
+ 		goto error_return;
+ 	}
+ 
+-	ext4_debug("freeing block %llu\n", block);
++    ext4_debug("freeing block %llu\n", block);
+ 	trace_ext4_free_blocks(inode, block, count, flags);
+ 
+ 	if (flags & EXT4_FREE_BLOCKS_FORGET) {
+@@ -4685,8 +4785,11 @@ do_more:
+ 	if (err)
+ 		goto error_return;
+ 
++    ext4_debug("ext4: freeing up blocks.\n");
++
+ 	if ((flags & EXT4_FREE_BLOCKS_METADATA) && ext4_handle_valid(handle)) {
+ 		struct ext4_free_data *new_entry;
++        ext4_debug("ext4: blocks being freeed are metadata.\n");
+ 		/*
+ 		 * blocks being freed are metadata. these blocks shouldn't
+ 		 * be used until this transaction is committed
+@@ -4700,6 +4803,7 @@ do_more:
+ 		new_entry->group  = block_group;
+ 		new_entry->count = count_clusters;
+ 		new_entry->t_tid = handle->h_transaction->t_tid;
++		new_entry->d_ftime = jiffies; 
+ 
+ 		ext4_lock_group(sb, block_group);
+ 		mb_clear_bits(bitmap_bh->b_data, bit, count_clusters);
+@@ -4707,12 +4811,12 @@ do_more:
+ 	} else {
+ 		/* need to update group_info->bb_free and bitmap
+ 		 * with group lock held. generate_buddy look at
+-		 * them with group lock_held
+-		 */
+-		ext4_lock_group(sb, block_group);
+-		mb_clear_bits(bitmap_bh->b_data, bit, count_clusters);
+-		mb_free_blocks(inode, &e4b, bit, count_clusters);
+-	}
++         * them with group lock_held
++         */
++        ext4_lock_group(sb, block_group);
++        mb_clear_bits(bitmap_bh->b_data, bit, count_clusters);
++        mb_free_blocks(inode, &e4b, bit, count_clusters);
++    }
+ 
+ 	ret = ext4_free_group_clusters(sb, gdp) + count_clusters;
+ 	ext4_free_group_clusters_set(sb, gdp, ret);
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/mballoc.h optfs/fs/ext4/mballoc.h
+--- linux-3.2/fs/ext4/mballoc.h	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/mballoc.h	2013-10-30 19:41:33.733929463 -0500
+@@ -36,12 +36,13 @@
+ 
+ /*
+  */
+-#ifdef CONFIG_EXT4_DEBUG
++#undef MB_DEBUG_EXT4BF
++#ifdef MB_DEBUG_EXT4BF
+ extern u8 mb_enable_debug;
+ 
+ #define mb_debug(n, fmt, a...)	                                        \
+ 	do {								\
+-		if ((n) <= mb_enable_debug) {		        	\
++		if ((n) <= 1) {		        	\
+ 			printk(KERN_DEBUG "(%s, %d): %s: ",		\
+ 			       __FILE__, __LINE__, __func__);		\
+ 			printk(fmt, ## a);				\
+@@ -111,6 +112,9 @@ struct ext4_free_data {
+ 
+ 	/* transaction which freed this extent */
+ 	tid_t	t_tid;
++
++	/* ext4: time when this block was freed. */
++	unsigned int d_ftime;	/* Free time */
+ };
+ 
+ struct ext4_prealloc_space {
+@@ -212,6 +216,13 @@ struct ext4_buddy {
+ };
+ #define EXT4_MB_BITMAP(e4b)	((e4b)->bd_bitmap)
+ #define EXT4_MB_BUDDY(e4b)	((e4b)->bd_buddy)
++/* ext4: adding for ext4. */
++extern int ext4_mb_load_buddy(struct super_block *sb, ext4_group_t group,
++        struct ext4_buddy *e4b);
++extern void ext4_mb_unload_buddy(struct ext4_buddy *e4b);
++extern void mb_free_blocks(struct inode *inode, struct ext4_buddy *e4b,
++        int first, int count);
++/* */
+ 
+ static inline ext4_fsblk_t ext4_grp_offs_to_block(struct super_block *sb,
+ 					struct ext4_free_extent *fex)
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/mk-big.sh optfs/fs/ext4/mk-big.sh
+--- linux-3.2/fs/ext4/mk-big.sh	1969-12-31 18:00:00.000000000 -0600
++++ optfs/fs/ext4/mk-big.sh	2013-10-30 19:41:33.735929492 -0500
+@@ -0,0 +1,3 @@
++umount /mnt/mydisk
++mkfs.ext4 -j -J size=16384 -E lazy_itable_init=0,lazy_journal_init=0 /dev/sdb1
++
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/namei.c optfs/fs/ext4/namei.c
+--- linux-3.2/fs/ext4/namei.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/namei.c	2013-10-30 19:41:33.746929654 -0500
+@@ -26,7 +26,7 @@
+ 
+ #include <linux/fs.h>
+ #include <linux/pagemap.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/time.h>
+ #include <linux/fcntl.h>
+ #include <linux/stat.h>
+@@ -40,7 +40,10 @@
+ #include "xattr.h"
+ #include "acl.h"
+ 
++/*
+ #include <trace/events/ext4.h>
++*/
++
+ /*
+  * define how far ahead to read directories while searching them.
+  */
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/page-io.c optfs/fs/ext4/page-io.c
+--- linux-3.2/fs/ext4/page-io.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/page-io.c	2013-10-30 19:41:33.747929669 -0500
+@@ -9,7 +9,7 @@
+ #include <linux/module.h>
+ #include <linux/fs.h>
+ #include <linux/time.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/highuid.h>
+ #include <linux/pagemap.h>
+ #include <linux/quotaops.h>
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/recovery.c optfs/fs/ext4/recovery.c
+--- linux-3.2/fs/ext4/recovery.c	2013-10-30 18:30:36.464358233 -0500
++++ optfs/fs/ext4/recovery.c	2013-10-30 19:41:33.749929697 -0500
+@@ -18,7 +18,7 @@
+ #else
+ #include <linux/time.h>
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/errno.h>
+ #include <linux/crc32.h>
+ #endif
+@@ -52,6 +52,25 @@ static void journal_brelse_array(struct 
+ 		brelse (b[n]);
+ }
+ 
++static inline unsigned long long read_tag_block(int tag_bytes, journal_block_tag_t *tag)
++{
++	unsigned long long block = be32_to_cpu(tag->t_blocknr);
++	if (tag_bytes > JBD2_TAG_SIZE32)
++		block |= (u64)be32_to_cpu(tag->t_blocknr_high) << 32;
++	return block;
++}
++
++/* ext4: for reading the checksum from the tag blocks. */
++static inline unsigned long long read_tag_checksum(int tag_bytes, journal_block_tag_t *tag)
++{
++	unsigned checksum = be32_to_cpu(tag->t_chksum[0]);
++	return checksum;
++}
++
++static inline unsigned long long read_tag_type(int tag_bytes, journal_block_tag_t *tag)
++{
++	return be32_to_cpu(tag->t_blocktype);
++}
+ 
+ /*
+  * When reading from the journal, we are going through the block device
+@@ -89,7 +108,7 @@ static int do_readahead(journal_t *journ
+ 		err = jbd2_journal_bmap(journal, next, &blocknr);
+ 
+ 		if (err) {
+-			printk(KERN_ERR "JBD2: bad block at offset %u\n",
++			printk(KERN_ERR "JBDBF: bad block at offset %u\n",
+ 				next);
+ 			goto failed;
+ 		}
+@@ -138,14 +157,14 @@ static int jread(struct buffer_head **bh
+ 	*bhp = NULL;
+ 
+ 	if (offset >= journal->j_maxlen) {
+-		printk(KERN_ERR "JBD2: corrupted journal superblock\n");
++		printk(KERN_ERR "JBDBF: corrupted journal superblock\n");
+ 		return -EIO;
+ 	}
+ 
+ 	err = jbd2_journal_bmap(journal, offset, &blocknr);
+ 
+ 	if (err) {
+-		printk(KERN_ERR "JBD2: bad block at offset %u\n",
++		printk(KERN_ERR "JBDBF: bad block at offset %u\n",
+ 			offset);
+ 		return err;
+ 	}
+@@ -163,7 +182,7 @@ static int jread(struct buffer_head **bh
+ 	}
+ 
+ 	if (!buffer_uptodate(bh)) {
+-		printk(KERN_ERR "JBD2: Failed to read block at offset %u\n",
++		printk(KERN_ERR "JBDBF: Failed to read block at offset %u\n",
+ 			offset);
+ 		brelse(bh);
+ 		return -EIO;
+@@ -173,6 +192,39 @@ static int jread(struct buffer_head **bh
+ 	return 0;
+ }
+ 
++/*
++ * Read a data block from the device.
++ */
++
++static int dread(struct buffer_head **bhp, journal_t *journal,
++		 unsigned long long blocknr)
++{
++	int err;
++	struct buffer_head *bh;
++
++    jbd_debug(6, "EXT4BF: trying to read data block at %lu\n", blocknr);
++
++	*bhp = NULL;
++
++    bh = __getblk(journal->j_fs_dev, blocknr, journal->j_blocksize);
++	if (!bh)
++		return -ENOMEM;
++
++	if (!buffer_uptodate(bh)) {
++        ll_rw_block(READ, 1, &bh);
++        wait_on_buffer(bh);
++	}
++
++	if (!buffer_uptodate(bh)) {
++		printk(KERN_ERR "JBDBF: Failed to read block at block %u\n",
++			blocknr);
++		brelse(bh);
++		return -EIO;
++	}
++
++	*bhp = bh;
++	return 0;
++}
+ 
+ /*
+  * Count the number of in-use tags in a journal descriptor block.
+@@ -185,12 +237,16 @@ static int count_tags(journal_t *journal
+ 	int			nr = 0, size = journal->j_blocksize;
+ 	int			tag_bytes = journal_tag_bytes(journal);
+ 
++    unsigned long long blocknr;
++    unsigned long long data_checksum;
++
+ 	tagp = &bh->b_data[sizeof(journal_header_t)];
+ 
+ 	while ((tagp - bh->b_data + tag_bytes) <= size) {
+ 		tag = (journal_block_tag_t *) tagp;
+-
+-		nr++;
++        
++		if(read_tag_type(tag_bytes, tag) != 2)
++			nr++;
+ 		tagp += tag_bytes;
+ 		if (!(tag->t_flags & cpu_to_be32(JBD2_FLAG_SAME_UUID)))
+ 			tagp += 16;
+@@ -202,6 +258,129 @@ static int count_tags(journal_t *journal
+ 	return nr;
+ }
+ 
++struct dc_struct {
++	unsigned long long mismatched_blocks[100];
++	unsigned int next_commit_ID[100];
++};
++
++static void init_dc_struct(struct dc_struct *dc_object) {
++	memset(dc_object, 0, sizeof(struct dc_struct));
++}
++
++static void add_to_mismatched_blocks(struct dc_struct *dc_object, unsigned long long block, unsigned int next_commit_ID) {
++	int i;
++	jbd_debug(6, "EXT4BF: datachecksums: Adding mismatched block %llu, and next_commit_ID %u\n", block, next_commit_ID);
++	for(i = 0; i < 100; i++) {
++		if(dc_object->mismatched_blocks[i] == block) {
++			dc_object->next_commit_ID[i] = next_commit_ID;
++			return;
++		}
++	}
++	for(i = 0; i < 100; i++) {
++		if(dc_object->mismatched_blocks[i] == 0) {
++			dc_object->mismatched_blocks[i] = block;
++			dc_object->next_commit_ID[i] = next_commit_ID;
++			return;
++		}
++	}
++	printk(KERN_ERR "EXT4BF: ERROR: Exceeded dc_struct capacity");
++}
++
++static void delete_from_mismatched_blocks(struct dc_struct *dc_object, unsigned long long block) {
++	int i;
++	jbd_debug(6, "EXT4BF: datachecksums: Removing from mismatched list, block %llu\n", block);
++	for(i = 0; i < 100; i++) {
++		if(dc_object->mismatched_blocks[i] == block) {
++			dc_object->mismatched_blocks[i] = 0;
++			return;
++		}
++	}
++}
++
++static int is_datachecksum_err(struct dc_struct *dc_object, unsigned int *next_commit_ID, unsigned long long *block) {
++	int i;
++	int error_index = -1;
++	for(i = 0; i < 100; i++) {
++		if(dc_object->mismatched_blocks[i] != 0) {
++			if(error_index == -1 || dc_object->next_commit_ID[error_index] > dc_object->next_commit_ID[i]) {
++				error_index = i;
++			}
++		}
++	}
++	if(error_index == -1) {
++		return 0;
++	} else {
++		*next_commit_ID = dc_object->next_commit_ID[error_index];
++		*block = dc_object->mismatched_blocks[error_index];
++		return 1;
++	}
++}
++
++static int read_and_verify_checksums(journal_t *journal, struct buffer_head *bh, struct dc_struct *dc_object, unsigned int next_commit_ID)
++{
++	char *			tagp;
++	journal_block_tag_t *	tag;
++	int			nr = 0, size = journal->j_blocksize;
++	int			tag_bytes = journal_tag_bytes(journal);
++	struct buffer_head *obh;
++    unsigned long long blocknr, blocktype, data_checksum;
++    int err;
++    __u32 crc32_sum;
++
++    int chksum_err = 0;
++
++	tagp = &bh->b_data[sizeof(journal_header_t)];
++
++	while ((tagp - bh->b_data + tag_bytes) <= size) {
++		tag = (journal_block_tag_t *) tagp;
++        
++        blocknr = read_tag_block(tag_bytes, tag);
++        data_checksum = read_tag_checksum(tag_bytes, tag);
++        blocktype = read_tag_type(tag_bytes, tag);
++
++        jbd_debug(6, "EXT4BF: reading tag block %llu, checksum %llu type %llu\n",
++                blocknr, data_checksum, read_tag_type(tag_bytes, tag)); 
++
++        if (blocktype == 2) {
++			jbd_debug(6, "EXT4BF: trying to read and verify the block checksum");
++            err = dread(&obh, journal, blocknr);
++            if (err) {
++                printk(KERN_ERR "JBDBF: IO error %d recovering block "
++                        "%lu in log\n", err, blocknr);
++                return 1;
++            } else {
++                crc32_sum = 0;
++                crc32_sum = crc32_be(0, (void *)obh->b_data,
++                        obh->b_size);
++                jbd_debug(6, "EXT4BF: calc checksum from block: %u\n", crc32_sum);
++                char *cdata = (char*)obh->b_data;
++                jbd_debug(6, "EXT4BF: printing the first four characters from the read block: %c%c%c%c\n",
++                        cdata[0], cdata[1], cdata[2], cdata[3]);
++
++                /* See if the checksums match. */
++                if (crc32_sum != data_checksum) {
++                    jbd_debug(6, "EXT4BF: checksums don't match! orig: %u computed: %u\n",
++                            data_checksum, crc32_sum);
++					add_to_mismatched_blocks(dc_object, blocknr, next_commit_ID);
++                    chksum_err = 1;
++                }
++            }
++        } else if (blocktype == 3) {
++        	jbd_debug(6, "EXT4BF: Found overwritten data block %d, removing it from wrong-checksums list\n");
++        	delete_from_mismatched_blocks(dc_object, blocknr);
++        }
++
++		nr++;
++		tagp += tag_bytes;
++		if (!(tag->t_flags & cpu_to_be32(JBD2_FLAG_SAME_UUID)))
++			tagp += 16;
++
++		if (tag->t_flags & cpu_to_be32(JBD2_FLAG_LAST_TAG))
++			break;
++	}
++
++	return chksum_err;
++}
+ 
+ /* Make sure we wrap around the log correctly! */
+ #define wrap(journal, var)						\
+@@ -293,7 +472,7 @@ int jbd2_journal_skip_recovery(journal_t
+ 	err = do_one_pass(journal, &info, PASS_SCAN);
+ 
+ 	if (err) {
+-		printk(KERN_ERR "JBD2: error %d scanning journal\n", err);
++		printk(KERN_ERR "JBDBF: error %d scanning journal\n", err);
+ 		++journal->j_transaction_sequence;
+ 	} else {
+ #ifdef CONFIG_JBD2_DEBUG
+@@ -310,14 +489,6 @@ int jbd2_journal_skip_recovery(journal_t
+ 	return err;
+ }
+ 
+-static inline unsigned long long read_tag_block(int tag_bytes, journal_block_tag_t *tag)
+-{
+-	unsigned long long block = be32_to_cpu(tag->t_blocknr);
+-	if (tag_bytes > JBD2_TAG_SIZE32)
+-		block |= (u64)be32_to_cpu(tag->t_blocknr_high) << 32;
+-	return block;
+-}
+-
+ /*
+  * calc_chksums calculates the checksums for the blocks described in the
+  * descriptor block.
+@@ -338,7 +509,7 @@ static int calc_chksums(journal_t *journ
+ 		wrap(journal, *next_log_block);
+ 		err = jread(&obh, journal, io_block);
+ 		if (err) {
+-			printk(KERN_ERR "JBD2: IO error %d recovering block "
++			printk(KERN_ERR "JBDBF: IO error %d recovering block "
+ 				"%lu in log\n", err, io_block);
+ 			return 1;
+ 		} else {
+@@ -364,6 +535,10 @@ static int do_one_pass(journal_t *journa
+ 	int			tag_bytes = journal_tag_bytes(journal);
+ 	__u32			crc32_sum = ~0; /* Transactional Checksums */
+ 
++
++	struct dc_struct *dc_object = kzalloc(sizeof(struct dc_struct), GFP_NOFS);
++	init_dc_struct(dc_object);
++
+ 	/*
+ 	 * First thing is to establish what we expect to find in the log
+ 	 * (in terms of transaction IDs), and where (in terms of log
+@@ -374,11 +549,18 @@ static int do_one_pass(journal_t *journa
+ 	next_commit_ID = be32_to_cpu(sb->s_sequence);
+ 	next_log_block = be32_to_cpu(sb->s_start);
+ 
++	jbd_debug(6, "EXT4BF: Got sequence number from sb: %lu\n", next_commit_ID);
++
+ 	first_commit_ID = next_commit_ID;
+ 	if (pass == PASS_SCAN)
+ 		info->start_transaction = first_commit_ID;
+ 
+-	jbd_debug(1, "Starting recovery pass %d\n", pass);
++	jbd_debug(6, "EXT4BF: Starting recovery pass %d\n", pass);
++	if (pass == PASS_REPLAY) {
++		jbd_debug(6, "EXT4BF: Going to do recovery now.");
++		jbd_debug(6, "EXT4BF: Start transaction: %lu\n", info->start_transaction);
++		jbd_debug(6, "EXT4BF: End transaction: %lu\n", info->end_transaction);
++	}
+ 
+ 	/*
+ 	 * Now we walk through the log, transaction by transaction,
+@@ -401,8 +583,10 @@ static int do_one_pass(journal_t *journa
+ 		 * the log. */
+ 
+ 		if (pass != PASS_SCAN)
+-			if (tid_geq(next_commit_ID, info->end_transaction))
++			if (tid_geq(next_commit_ID, info->end_transaction)) {
++				jbd_debug(6, "EXT4BF: Breaking because next_commit_ID (=%u) and info->end_transaction %u dont match\n", next_commit_ID, info->end_transaction);
+ 				break;
++			}
+ 
+ 		jbd_debug(2, "Scanning for sequence ID %u at %lu/%lu\n",
+ 			  next_commit_ID, next_log_block, journal->j_last);
+@@ -453,6 +637,15 @@ static int do_one_pass(journal_t *journa
+ 			 * calculate checksums in PASS_SCAN, otherwise,
+ 			 * just skip over the blocks it describes. */
+ 			if (pass != PASS_REPLAY) {
++
++				/* Verify the data checksums. This will return 0 if all the
++				 * data blocks are not checksummed (when checksums are not
++				 * used.) 
++				 */
++
++				
++				read_and_verify_checksums(journal, bh, dc_object, next_commit_ID);
++
+ 				if (pass == PASS_SCAN &&
+ 				    JBD2_HAS_COMPAT_FEATURE(journal,
+ 					    JBD2_FEATURE_COMPAT_CHECKSUM) &&
+@@ -484,6 +677,10 @@ static int do_one_pass(journal_t *journa
+ 				tag = (journal_block_tag_t *) tagp;
+ 				flags = be32_to_cpu(tag->t_flags);
+ 
++				if(read_tag_type(tag_bytes, tag) == 2)
++					goto skip_write;
++
++
+ 				io_block = next_log_block++;
+ 				wrap(journal, next_log_block);
+ 				err = jread(&obh, journal, io_block);
+@@ -492,15 +689,21 @@ static int do_one_pass(journal_t *journa
+ 					 * report failure at the end. */
+ 					success = err;
+ 					printk(KERN_ERR
+-						"JBD2: IO error %d recovering "
++						"JBDBF: IO error %d recovering "
+ 						"block %ld in log\n",
+ 						err, io_block);
+ 				} else {
+ 					unsigned long long blocknr;
++                    unsigned data_checksum;
+ 
+ 					J_ASSERT(obh != NULL);
+ 					blocknr = read_tag_block(tag_bytes,
+ 								 tag);
++                    data_checksum = read_tag_checksum(tag_bytes,
++                            tag);
++
++                   jbd_debug(6, "EXT4BF: got tag block %lu, checksum %lu\n",
++                           blocknr, data_checksum); 
+ 
+ 					/* If the block has been
+ 					 * revoked, then we're all done
+@@ -519,7 +722,7 @@ static int do_one_pass(journal_t *journa
+ 							blocknr,
+ 							journal->j_blocksize);
+ 					if (nbh == NULL) {
+-						printk(KERN_ERR
++						jbd_debug(6, KERN_ERR
+ 						       "JBD2: Out of memory "
+ 						       "during recovery.\n");
+ 						err = -ENOMEM;
+@@ -527,6 +730,7 @@ static int do_one_pass(journal_t *journa
+ 						brelse(obh);
+ 						goto failed;
+ 					}
++					char *cdata = (char*)obh->b_data;
+ 
+ 					lock_buffer(nbh);
+ 					memcpy(nbh->b_data, obh->b_data,
+@@ -639,8 +843,6 @@ static int do_one_pass(journal_t *journa
+ 
+ 					if (!JBD2_HAS_INCOMPAT_FEATURE(journal,
+ 					   JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT)){
+-						journal->j_failed_commit =
+-							next_commit_ID;
+ 						brelse(bh);
+ 						break;
+ 					}
+@@ -683,23 +885,31 @@ static int do_one_pass(journal_t *journa
+ 	 */
+ 
+ 	if (pass == PASS_SCAN) {
+-		if (!info->end_transaction)
++		unsigned long long error_data_block;
++		if (is_datachecksum_err(dc_object, &next_commit_ID, &error_data_block)) {
++			jbd_debug(6, "Confirmed data checksum mismatch error in PASS_SCAN, with next_commit_ID = %lu, block = %llu\n", next_commit_ID, error_data_block);
+ 			info->end_transaction = next_commit_ID;
++		} else if (!info->end_transaction) {
++			jbd_debug(6, "Setting end_transaction as %lu\n", next_commit_ID);
++			info->end_transaction = next_commit_ID;
++		}
+ 	} else {
+ 		/* It's really bad news if different passes end up at
+ 		 * different places (but possible due to IO errors). */
+ 		if (info->end_transaction != next_commit_ID) {
+-			printk(KERN_ERR "JBD2: recovery pass %d ended at "
++			printk(KERN_ERR "JBDBF: recovery pass %d ended at "
+ 				"transaction %u, expected %u\n",
+ 				pass, next_commit_ID, info->end_transaction);
+ 			if (!success)
+ 				success = -EIO;
+ 		}
+ 	}
+-
++	kfree(dc_object);
+ 	return success;
+ 
+  failed:
++	jbd_debug(6, "EXT4BF: Entering failed label in journal recovery\n");
++	kfree(dc_object);
+ 	return err;
+ }
+ 
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/resize.c optfs/fs/ext4/resize.c
+--- linux-3.2/fs/ext4/resize.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/resize.c	2013-10-30 19:41:33.752929741 -0500
+@@ -69,7 +69,7 @@ static int verify_group_input(struct sup
+ 		input->blocks_count - 2 - overhead - sbi->s_itb_per_group;
+ 
+ 	if (test_opt(sb, DEBUG))
+-		printk(KERN_DEBUG "EXT4-fs: adding %s group %u: %u blocks "
++		printk(KERN_DEBUG "EXT4BF-fs: adding %s group %u: %u blocks "
+ 		       "(%d free, %u reserved)\n",
+ 		       ext4_bg_has_super(sb, input->group) ? "normal" :
+ 		       "no-super", input->group, input->blocks_count,
+@@ -410,7 +410,7 @@ static int add_new_gdb(handle_t *handle,
+ 
+ 	if (test_opt(sb, DEBUG))
+ 		printk(KERN_DEBUG
+-		       "EXT4-fs: ext4_add_new_gdb: adding group block %lu\n",
++		       "EXT4BF-fs: ext4_add_new_gdb: adding group block %lu\n",
+ 		       gdb_num);
+ 
+ 	/*
+@@ -992,14 +992,14 @@ int ext4_group_extend(struct super_block
+ 	o_blocks_count = ext4_blocks_count(es);
+ 
+ 	if (test_opt(sb, DEBUG))
+-		printk(KERN_DEBUG "EXT4-fs: extending last group from %llu to %llu blocks\n",
++		printk(KERN_DEBUG "EXT4BF-fs: extending last group from %llu to %llu blocks\n",
+ 		       o_blocks_count, n_blocks_count);
+ 
+ 	if (n_blocks_count == 0 || n_blocks_count == o_blocks_count)
+ 		return 0;
+ 
+ 	if (n_blocks_count > (sector_t)(~0ULL) >> (sb->s_blocksize_bits - 9)) {
+-		printk(KERN_ERR "EXT4-fs: filesystem on %s:"
++		printk(KERN_ERR "EXT4BF-fs: filesystem on %s:"
+ 			" too large to resize to %llu blocks safely\n",
+ 			sb->s_id, n_blocks_count);
+ 		if (sizeof(sector_t) < 8)
+@@ -1074,7 +1074,7 @@ int ext4_group_extend(struct super_block
+ 		goto exit_put;
+ 
+ 	if (test_opt(sb, DEBUG))
+-		printk(KERN_DEBUG "EXT4-fs: extended group to %llu blocks\n",
++		printk(KERN_DEBUG "EXT4BF-fs: extended group to %llu blocks\n",
+ 		       ext4_blocks_count(es));
+ 	update_backups(sb, EXT4_SB(sb)->s_sbh->b_blocknr, (char *)es,
+ 		       sizeof(struct ext4_super_block));
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/revoke.c optfs/fs/ext4/revoke.c
+--- linux-3.2/fs/ext4/revoke.c	2013-10-30 18:30:36.464358233 -0500
++++ optfs/fs/ext4/revoke.c	2013-10-30 19:41:33.754929771 -0500
+@@ -81,7 +81,7 @@
+ #else
+ #include <linux/time.h>
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/errno.h>
+ #include <linux/slab.h>
+ #include <linux/list.h>
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/super.c optfs/fs/ext4/super.c
+--- linux-3.2/fs/ext4/super.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/super.c	2013-10-30 19:41:33.767929959 -0500
+@@ -21,7 +21,7 @@
+ #include <linux/fs.h>
+ #include <linux/time.h>
+ #include <linux/vmalloc.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/slab.h>
+ #include <linux/init.h>
+ #include <linux/blkdev.h>
+@@ -51,8 +51,33 @@
+ #include "acl.h"
+ #include "mballoc.h"
+ 
+-#define CREATE_TRACE_POINTS
+-#include <trace/events/ext4.h>
++#include <linux/list.h>
++#include <linux/spinlock.h>
++
++/* ext4: delayed block re-use. */
++struct list_head ext4_delayed_reuse_list;
++struct timer_list ext4_delay_timer;
++const int EXT4BF_DELAY_TIMEOUT = 30000;
++const int EXT4BF_WAKEUP_TIME = 30000;
++spinlock_t dr_lock;
++spinlock_t data_tag_lock;
++struct task_struct *delay_reuse_task;
++
++void process_delay_reuse_items(void* data) {
++    struct super_block *sb = (struct super_block*) data;
++    while(!kthread_should_stop()) {
++        release_blocks_after_delay(sb, EXT4BF_DELAY_TIMEOUT, 0); 
++        set_current_state(TASK_INTERRUPTIBLE);
++        schedule();
++    }
++}
++
++void periodic_wakeup_delay_task() {
++    if (delay_reuse_task) wake_up_process(delay_reuse_task);
++    mod_timer(&ext4_delay_timer, jiffies + msecs_to_jiffies(EXT4BF_WAKEUP_TIME));
++}
++
++/* */
+ 
+ static struct proc_dir_entry *ext4_proc_root;
+ static struct kset *ext4_kset;
+@@ -464,7 +489,7 @@ static void ext4_handle_error(struct sup
+ 		sb->s_flags |= MS_RDONLY;
+ 	}
+ 	if (test_opt(sb, ERRORS_PANIC))
+-		panic("EXT4-fs (device %s): panic forced after error\n",
++		panic("EXT4BF-fs (device %s): panic forced after error\n",
+ 			sb->s_id);
+ }
+ 
+@@ -477,7 +502,7 @@ void __ext4_error(struct super_block *sb
+ 	va_start(args, fmt);
+ 	vaf.fmt = fmt;
+ 	vaf.va = &args;
+-	printk(KERN_CRIT "EXT4-fs error (device %s): %s:%d: comm %s: %pV\n",
++	printk(KERN_CRIT "EXT4BF-fs error (device %s): %s:%d: comm %s: %pV\n",
+ 	       sb->s_id, function, line, current->comm, &vaf);
+ 	va_end(args);
+ 
+@@ -498,7 +523,7 @@ void ext4_error_inode(struct inode *inod
+ 	va_start(args, fmt);
+ 	vaf.fmt = fmt;
+ 	vaf.va = &args;
+-	printk(KERN_CRIT "EXT4-fs error (device %s): %s:%d: inode #%lu: ",
++	printk(KERN_CRIT "EXT4BF-fs error (device %s): %s:%d: inode #%lu: ",
+ 	       inode->i_sb->s_id, function, line, inode->i_ino);
+ 	if (block)
+ 		printk(KERN_CONT "block %llu: ", block);
+@@ -525,7 +550,7 @@ void ext4_error_file(struct file *file, 
+ 	if (IS_ERR(path))
+ 		path = "(unknown)";
+ 	printk(KERN_CRIT
+-	       "EXT4-fs error (device %s): %s:%d: inode #%lu: ",
++	       "EXT4BF-fs error (device %s): %s:%d: inode #%lu: ",
+ 	       inode->i_sb->s_id, function, line, inode->i_ino);
+ 	if (block)
+ 		printk(KERN_CONT "block %llu: ", block);
+@@ -589,7 +614,7 @@ void __ext4_std_error(struct super_block
+ 		return;
+ 
+ 	errstr = ext4_decode_error(sb, errno, nbuf);
+-	printk(KERN_CRIT "EXT4-fs error (device %s) in %s:%d: %s\n",
++	printk(KERN_CRIT "EXT4BF-fs error (device %s) in %s:%d: %s\n",
+ 	       sb->s_id, function, line, errstr);
+ 	save_error_info(sb, function, line);
+ 
+@@ -613,7 +638,7 @@ void __ext4_abort(struct super_block *sb
+ 
+ 	save_error_info(sb, function, line);
+ 	va_start(args, fmt);
+-	printk(KERN_CRIT "EXT4-fs error (device %s): %s:%d: ", sb->s_id,
++	printk(KERN_CRIT "EXT4BF-fs error (device %s): %s:%d: ", sb->s_id,
+ 	       function, line);
+ 	vprintk(fmt, args);
+ 	printk("\n");
+@@ -628,7 +653,7 @@ void __ext4_abort(struct super_block *sb
+ 		save_error_info(sb, function, line);
+ 	}
+ 	if (test_opt(sb, ERRORS_PANIC))
+-		panic("EXT4-fs panic from previous error\n");
++		panic("EXT4BF-fs panic from previous error\n");
+ }
+ 
+ void ext4_msg(struct super_block *sb, const char *prefix, const char *fmt, ...)
+@@ -639,7 +664,7 @@ void ext4_msg(struct super_block *sb, co
+ 	va_start(args, fmt);
+ 	vaf.fmt = fmt;
+ 	vaf.va = &args;
+-	printk("%sEXT4-fs (%s): %pV\n", prefix, sb->s_id, &vaf);
++	printk("%sEXT4BF-fs (%s): %pV\n", prefix, sb->s_id, &vaf);
+ 	va_end(args);
+ }
+ 
+@@ -652,7 +677,7 @@ void __ext4_warning(struct super_block *
+ 	va_start(args, fmt);
+ 	vaf.fmt = fmt;
+ 	vaf.va = &args;
+-	printk(KERN_WARNING "EXT4-fs warning (device %s): %s:%d: %pV\n",
++	printk(KERN_WARNING "EXT4BF-fs warning (device %s): %s:%d: %pV\n",
+ 	       sb->s_id, function, line, &vaf);
+ 	va_end(args);
+ }
+@@ -676,7 +701,7 @@ __acquires(bitlock)
+ 
+ 	vaf.fmt = fmt;
+ 	vaf.va = &args;
+-	printk(KERN_CRIT "EXT4-fs error (device %s): %s:%d: group %u, ",
++	printk(KERN_CRIT "EXT4BF-fs error (device %s): %s:%d: group %u, ",
+ 	       sb->s_id, function, line, grp);
+ 	if (ino)
+ 		printk(KERN_CONT "inode %lu: ", ino);
+@@ -824,6 +849,16 @@ static void ext4_put_super(struct super_
+ 	ext4_ext_release(sb);
+ 	ext4_xattr_put_super(sb);
+ 
++#ifdef DELAYED_REUSE
++    /* ext4: freeing delayed block reuse list. */
++    ext4_debug("Stopping the thread.");
++    /* Release any blocks that are left. */
++    release_blocks_after_delay(sb, 0, 1);
++    if (delay_reuse_task) kthread_stop(delay_reuse_task);
++    del_timer(&ext4_delay_timer);
++    /* */
++#endif
++
+ 	if (!(sb->s_flags & MS_RDONLY)) {
+ 		EXT4_CLEAR_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_RECOVER);
+ 		es->s_state = cpu_to_le16(sbi->s_mount_state);
+@@ -1130,6 +1165,10 @@ static int ext4_show_options(struct seq_
+ 		seq_puts(seq, ",data=ordered");
+ 	else if (test_opt(sb, DATA_FLAGS) == EXT4_MOUNT_WRITEBACK_DATA)
+ 		seq_puts(seq, ",data=writeback");
++	/* ext4: barrier free journaling is slightly different. Don't use data
++	 * flags as a mask to get the mount option. */
++	else if (test_opt(sb, BARRIERFREE_DATA) == EXT4_MOUNT_BARRIERFREE_DATA)
++		seq_puts(seq, ",data=barrierfree");
+ 
+ 	if (sbi->s_inode_readahead_blks != EXT4_DEF_INODE_READAHEAD_BLKS)
+ 		seq_printf(seq, ",inode_readahead_blks=%u",
+@@ -1212,7 +1251,7 @@ static struct dentry *ext4_fh_to_parent(
+  * Try to release metadata pages (indirect blocks, directories) which are
+  * mapped via the block device.  Since these pages could have journal heads
+  * which would prevent try_to_free_buffers() from freeing them, we must use
+- * jbd2 layer's try_to_free_buffers() function to release them.
++ * jbd layer's try_to_free_buffers() function to release them.
+  */
+ static int bdev_try_to_free_page(struct super_block *sb, struct page *page,
+ 				 gfp_t wait)
+@@ -1324,6 +1363,7 @@ enum {
+ 	Opt_journal_update, Opt_journal_dev,
+ 	Opt_journal_checksum, Opt_journal_async_commit,
+ 	Opt_abort, Opt_data_journal, Opt_data_ordered, Opt_data_writeback,
++	Opt_data_barrierfree,
+ 	Opt_data_err_abort, Opt_data_err_ignore,
+ 	Opt_usrjquota, Opt_grpjquota, Opt_offusrjquota, Opt_offgrpjquota,
+ 	Opt_jqfmt_vfsold, Opt_jqfmt_vfsv0, Opt_jqfmt_vfsv1, Opt_quota,
+@@ -1372,6 +1412,7 @@ static const match_table_t tokens = {
+ 	{Opt_data_journal, "data=journal"},
+ 	{Opt_data_ordered, "data=ordered"},
+ 	{Opt_data_writeback, "data=writeback"},
++	{Opt_data_barrierfree, "data=barrierfree"},
+ 	{Opt_data_err_abort, "data_err=abort"},
+ 	{Opt_data_err_ignore, "data_err=ignore"},
+ 	{Opt_offusrjquota, "usrjquota="},
+@@ -1424,7 +1465,7 @@ static ext4_fsblk_t get_sb_block(void **
+ 	/* TODO: use simple_strtoll with >32bit ext4 */
+ 	sb_block = simple_strtoul(options, &options, 0);
+ 	if (*options && *options != ',') {
+-		printk(KERN_ERR "EXT4-fs: Invalid sb specification: %s\n",
++		printk(KERN_ERR "EXT4BF-fs: Invalid sb specification: %s\n",
+ 		       (char *) *data);
+ 		return 1;
+ 	}
+@@ -1678,6 +1719,9 @@ static int parse_options(char *options, 
+ 		case Opt_data_ordered:
+ 			data_opt = EXT4_MOUNT_ORDERED_DATA;
+ 			goto datacheck;
++        case Opt_data_barrierfree:
++			data_opt = EXT4_MOUNT_BARRIERFREE_DATA;
++			goto datacheck;
+ 		case Opt_data_writeback:
+ 			data_opt = EXT4_MOUNT_WRITEBACK_DATA;
+ 		datacheck:
+@@ -1851,7 +1895,7 @@ set_qf_format:
+ 				return 0;
+ 			if (option && !is_power_of_2(option)) {
+ 				ext4_msg(sb, KERN_ERR,
+-					 "EXT4-fs: inode_readahead_blks"
++					 "EXT4BF-fs: inode_readahead_blks"
+ 					 " must be a power of 2");
+ 				return 0;
+ 			}
+@@ -2732,7 +2776,7 @@ static void print_daily_error_info(unsig
+ 		ext4_msg(sb, KERN_NOTICE, "error count: %u",
+ 			 le32_to_cpu(es->s_error_count));
+ 	if (es->s_first_error_time) {
+-		printk(KERN_NOTICE "EXT4-fs (%s): initial error at %u: %.*s:%d",
++		printk(KERN_NOTICE "EXT4BF-fs (%s): initial error at %u: %.*s:%d",
+ 		       sb->s_id, le32_to_cpu(es->s_first_error_time),
+ 		       (int) sizeof(es->s_first_error_func),
+ 		       es->s_first_error_func,
+@@ -2746,7 +2790,7 @@ static void print_daily_error_info(unsig
+ 		printk("\n");
+ 	}
+ 	if (es->s_last_error_time) {
+-		printk(KERN_NOTICE "EXT4-fs (%s): last error at %u: %.*s:%d",
++		printk(KERN_NOTICE "EXT4BF-fs (%s): last error at %u: %.*s:%d",
+ 		       sb->s_id, le32_to_cpu(es->s_last_error_time),
+ 		       (int) sizeof(es->s_last_error_func),
+ 		       es->s_last_error_func,
+@@ -2948,7 +2992,7 @@ static int ext4_run_lazyinit_thread(void
+ 		ext4_clear_request_list();
+ 		kfree(ext4_li_info);
+ 		ext4_li_info = NULL;
+-		printk(KERN_CRIT "EXT4: error %d creating inode table "
++		printk(KERN_CRIT "EXT4BF: error %d creating inode table "
+ 				 "initialization thread\n",
+ 				 err);
+ 		return err;
+@@ -3207,6 +3251,8 @@ static int ext4_fill_super(struct super_
+ 		set_opt(sb, ORDERED_DATA);
+ 	else if ((def_mount_opts & EXT4_DEFM_JMODE) == EXT4_DEFM_JMODE_WBACK)
+ 		set_opt(sb, WRITEBACK_DATA);
++	else if (def_mount_opts & EXT4_DEFM_JMODE_BARRIERFREE)
++		set_opt(sb, BARRIERFREE_DATA);
+ 
+ 	if (le16_to_cpu(sbi->s_es->s_errors) == EXT4_ERRORS_PANIC)
+ 		set_opt(sb, ERRORS_PANIC);
+@@ -3253,7 +3299,7 @@ static int ext4_fill_super(struct super_
+ 		goto failed_mount;
+ 
+ 	if (test_opt(sb, DATA_FLAGS) == EXT4_MOUNT_JOURNAL_DATA) {
+-		printk_once(KERN_WARNING "EXT4-fs: Warning: mounting "
++		printk_once(KERN_WARNING "EXT4BF-fs: Warning: mounting "
+ 			    "with data=journal disables delayed "
+ 			    "allocation and O_DIRECT support!\n");
+ 		if (test_opt2(sb, EXPLICIT_DELALLOC)) {
+@@ -3695,6 +3741,17 @@ static int ext4_fill_super(struct super_
+ 	default:
+ 		break;
+ 	}
++
++    /* ext4: handle barrier free ordering mode. */
++    if (test_opt(sb, BARRIERFREE_DATA)){
++        if (!jbd2_journal_check_available_features
++                (sbi->s_journal, 0, 0, JBD2_FEATURE_INCOMPAT_REVOKE)) {
++            ext4_msg(sb, KERN_ERR, "Journal does not support "
++                    "requested data journaling mode");
++            goto failed_mount_wq;
++        }
++    }
++
+ 	set_task_ioprio(sbi->s_journal->j_task, journal_ioprio);
+ 
+ 	/*
+@@ -3717,7 +3774,7 @@ no_journal:
+ 	EXT4_SB(sb)->dio_unwritten_wq =
+ 		alloc_workqueue("ext4-dio-unwritten", WQ_MEM_RECLAIM | WQ_UNBOUND, 1);
+ 	if (!EXT4_SB(sb)->dio_unwritten_wq) {
+-		printk(KERN_ERR "EXT4-fs: failed to create DIO workqueue\n");
++		printk(KERN_ERR "EXT4BF-fs: failed to create DIO workqueue\n");
+ 		goto failed_mount_wq;
+ 	}
+ 
+@@ -3805,12 +3862,14 @@ no_journal:
+ 		ext4_mark_recovery_complete(sb, es);
+ 	}
+ 	if (EXT4_SB(sb)->s_journal) {
+-		if (test_opt(sb, DATA_FLAGS) == EXT4_MOUNT_JOURNAL_DATA)
+-			descr = " journalled data mode";
+-		else if (test_opt(sb, DATA_FLAGS) == EXT4_MOUNT_ORDERED_DATA)
+-			descr = " ordered data mode";
+-		else
+-			descr = " writeback data mode";
++        if (test_opt(sb, DATA_FLAGS) == EXT4_MOUNT_JOURNAL_DATA)
++            descr = " journalled data mode";
++        else if (test_opt(sb, DATA_FLAGS) == EXT4_MOUNT_ORDERED_DATA)
++            descr = " ordered data mode";
++        else if (test_opt(sb, BARRIERFREE_DATA) == EXT4_MOUNT_BARRIERFREE_DATA)
++            descr = " barrier free data mode";
++        else 
++            descr = " writeback data mode";
+ 	} else
+ 		descr = "out journal";
+ 
+@@ -3821,6 +3880,28 @@ no_journal:
+ 	if (es->s_error_count)
+ 		mod_timer(&sbi->s_err_report, jiffies + 300*HZ); /* 5 minutes */
+ 
++#ifdef DELAYED_REUSE
++    /* ext4: setup the delayed block reuse list. */
++    INIT_LIST_HEAD(&ext4_delayed_reuse_list);
++    spin_lock_init(&dr_lock);
++    spin_lock_init(&data_tag_lock);
++    jbd_debug(6, "EXT4BF: Initialized the delayed block reuse list.");
++    jbd_debug(6, "EXT4BF: Initialized the delayed block reuse list.");
++
++    /* Initializing the thread. */
++    delay_reuse_task = kthread_run((void*) process_delay_reuse_items, (void*) sb, "kdelay_reuse");
++    if (IS_ERR(delay_reuse_task)) {
++        printk(KERN_ERR "Failed to create thread to delay-free data blocks.\n");
++        goto failed_mount7;
++    }
++    /* Initializing the timer. */
++    init_timer(&ext4_delay_timer);
++    ext4_delay_timer.function = &periodic_wakeup_delay_task;
++    ext4_delay_timer.expires = jiffies + msecs_to_jiffies(EXT4BF_WAKEUP_TIME);
++    add_timer(&ext4_delay_timer); 
++    /* */
++#endif
++
+ 	kfree(orig_data);
+ 	return 0;
+ 
+@@ -4951,7 +5032,7 @@ static inline void register_as_ext2(void
+ 	int err = register_filesystem(&ext2_fs_type);
+ 	if (err)
+ 		printk(KERN_WARNING
+-		       "EXT4-fs: Unable to register as ext2 (%d)\n", err);
++		       "EXT4BF-fs: Unable to register as ext2 (%d)\n", err);
+ }
+ 
+ static inline void unregister_as_ext2(void)
+@@ -4982,7 +5063,7 @@ static inline void register_as_ext3(void
+ 	int err = register_filesystem(&ext3_fs_type);
+ 	if (err)
+ 		printk(KERN_WARNING
+-		       "EXT4-fs: Unable to register as ext3 (%d)\n", err);
++		       "EXT4BF-fs: Unable to register as ext3 (%d)\n", err);
+ }
+ 
+ static inline void unregister_as_ext3(void)
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/symlink.c optfs/fs/ext4/symlink.c
+--- linux-3.2/fs/ext4/symlink.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/ext4/symlink.c	2013-10-30 19:41:33.767929959 -0500
+@@ -18,7 +18,7 @@
+  */
+ 
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/namei.h>
+ #include "ext4.h"
+ #include "xattr.h"
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c optfs/fs/ext4/transaction.c
+--- linux-3.2/fs/ext4/transaction.c	2013-10-30 18:30:36.464358233 -0500
++++ optfs/fs/ext4/transaction.c	2013-10-30 19:41:33.773930047 -0500
+@@ -19,7 +19,7 @@
+ 
+ #include <linux/time.h>
+ #include <linux/fs.h>
+-#include <linux/jbd2.h>
++#include "jbd.h"
+ #include <linux/errno.h>
+ #include <linux/slab.h>
+ #include <linux/timer.h>
+@@ -29,12 +29,15 @@
+ #include <linux/backing-dev.h>
+ #include <linux/bug.h>
+ #include <linux/module.h>
++#include <linux/bio.h>
++#include <linux/blkdev.h>
++#include "ext4.h"
+ 
+ static void __jbd2_journal_temp_unlink_buffer(struct journal_head *jh);
+ static void __jbd2_journal_unfile_buffer(struct journal_head *jh);
+ 
+ /*
+- * jbd2_get_transaction: obtain a new transaction_t object.
++ * jbd_get_transaction: obtain a new transaction_t object.
+  *
+  * Simply allocate and initialise a new transaction.  Create it in
+  * RUNNING state and add it to the current journal (which should not
+@@ -49,7 +52,7 @@ static void __jbd2_journal_unfile_buffer
+  */
+ 
+ static transaction_t *
+-jbd2_get_transaction(journal_t *journal, transaction_t *transaction)
++jbd_get_transaction(journal_t *journal, transaction_t *transaction)
+ {
+ 	transaction->t_journal = journal;
+ 	transaction->t_state = T_RUNNING;
+@@ -57,11 +60,14 @@ jbd2_get_transaction(journal_t *journal,
+ 	transaction->t_tid = journal->j_transaction_sequence++;
+ 	transaction->t_expires = jiffies + journal->j_commit_interval;
+ 	spin_lock_init(&transaction->t_handle_lock);
++	mutex_init(&transaction->t_dirty_data_mutex);
+ 	atomic_set(&transaction->t_updates, 0);
+ 	atomic_set(&transaction->t_outstanding_credits, 0);
+ 	atomic_set(&transaction->t_handle_count, 0);
+ 	INIT_LIST_HEAD(&transaction->t_inode_list);
+ 	INIT_LIST_HEAD(&transaction->t_private_list);
++	INIT_LIST_HEAD(&transaction->t_data_tag_list);
++	transaction->t_num_dirty_blocks = 0;
+ 
+ 	/* Set up the commit timer for the new transaction. */
+ 	journal->j_commit_timer.expires = round_jiffies_up(transaction->t_expires);
+@@ -90,7 +96,7 @@ jbd2_get_transaction(journal_t *journal,
+  * lock.  But doing so will mean that start_this_handle() can not be
+  * run in parallel on SMP systems, which limits our scalability.  So
+  * unless debugging is enabled, we no longer update t_max_wait, which
+- * means that maximum wait time reported by the jbd2_run_stats
++ * means that maximum wait time reported by the jbd_run_stats
+  * tracepoint will always be zero.
+  */
+ static inline void update_t_max_wait(transaction_t *transaction,
+@@ -180,7 +186,7 @@ repeat:
+ 			goto alloc_transaction;
+ 		write_lock(&journal->j_state_lock);
+ 		if (!journal->j_running_transaction) {
+-			jbd2_get_transaction(journal, new_transaction);
++			jbd_get_transaction(journal, new_transaction);
+ 			new_transaction = NULL;
+ 		}
+ 		write_unlock(&journal->j_state_lock);
+@@ -261,6 +267,7 @@ repeat:
+ 	 */
+ 	if (__jbd2_log_space_left(journal) < jbd_space_needed(journal)) {
+ 		jbd_debug(2, "Handle %p waiting for checkpoint...\n", handle);
++		// printk("Handle %p waiting for checkpoint...\n", handle);
+ 		atomic_sub(nblocks, &transaction->t_outstanding_credits);
+ 		read_unlock(&journal->j_state_lock);
+ 		write_lock(&journal->j_state_lock);
+@@ -603,6 +610,9 @@ do_get_write_access(handle_t *handle, st
+ repeat:
+ 	bh = jh2bh(jh);
+ 
++    jbd_debug(6, "EXT4BF: getting write access to %lu type %d\n",
++            bh->b_blocknr, bh->b_blocktype);
++
+ 	/* @@@ Need to check for errors here at some point. */
+ 
+ 	lock_buffer(bh);
+@@ -703,6 +713,7 @@ repeat:
+ 
+ 			wqh = bit_waitqueue(&bh->b_state, BH_Unshadow);
+ 
++			jbd_debug(6, "EXT4BF: waiting for a block to become unshadowed.");
+ 			JBUFFER_TRACE(jh, "on shadow: sleep");
+ 			jbd_unlock_bh_state(bh);
+ 			/* commit wakes up all shadow buffers after IO */
+@@ -764,6 +775,8 @@ repeat:
+ 	 * commits the new data
+ 	 */
+ 	if (!jh->b_transaction) {
++	    jbd_debug(6, "EXT4BF: filing the buffer %lu as reserved.\n",
++	            (jh2bh(jh))->b_blocknr);
+ 		JBUFFER_TRACE(jh, "no transaction");
+ 		J_ASSERT_JH(jh, !jh->b_next_transaction);
+ 		JBUFFER_TRACE(jh, "file as BJ_Reserved");
+@@ -1176,6 +1189,133 @@ out:
+ 	return ret;
+ }
+ 
++struct buffer_head	*dirty_data_bhs[EXT4BF_DATA_BATCH];
++/* ext4: routine to write out data blocks listed in t_forget list of each
++ * transactions. Mirros __flush_batch from checkpoint.c
++ */
++static void
++__flush_data_batch(int *batch_count)
++{
++	int i;
++	struct blk_plug plug;
++
++	blk_start_plug(&plug);
++	for (i = 0; i < *batch_count; i++)
++		write_dirty_buffer(dirty_data_bhs[i], WRITE_SYNC);
++	blk_finish_plug(&plug);
++
++	for (i = 0; i < *batch_count; i++) {
++		struct buffer_head *bh = dirty_data_bhs[i];
++		clear_buffer_jwrite(bh);
++		BUFFER_TRACE(bh, "brelse");
++		put_bh(bh);
++	}
++	*batch_count = 0;
++}
++
++static void write_out_dirty_blocks(journal_t *journal, transaction_t *commit_transaction) {
++    jbd_debug(6, "Doing early processing of blocks for transaction %lu\n",
++            commit_transaction->t_tid);
++    /* ext4: attempt to read the data blocks inside the t_forget list of the
++     * the current transaction. */
++    mutex_lock(&commit_transaction->t_dirty_data_mutex);
++    struct journal_head *jh, *jh_next;
++    jh = commit_transaction->t_dirty_data_list;
++    int data_batch_count = 0;
++    /* List of buffer heads to submit. */
++    while(1) {
++        if (!jh) {
++            jbd_debug(6, "ext4: got empty forget list\n");
++            break;
++        }
++        struct buffer_head *bh = jh2bh(jh);
++        if (!bh) break;
++        jbd_lock_bh_state(bh);
++        if (bh->b_blocktype == 1){
++            jbd_debug(6, "got block %lu in forget list\n", bh->b_blocknr);
++            /* Process the data buffer. */
++            get_bh(bh);
++            set_buffer_jwrite(bh);
++            dirty_data_bhs[data_batch_count++] = bh;
++            if (data_batch_count == EXT4BF_DATA_BATCH) {
++                __flush_data_batch(&data_batch_count);
++            }
++        }
++	    jbd_unlock_bh_state(bh);
++        /* If we are looping back, break */
++        if (jh->b_tnext == commit_transaction->t_dirty_data_list) {
++            /* We're done; flush remaining buffers and exit. */
++            if (data_batch_count) {
++                __flush_data_batch(&data_batch_count);
++            }
++            if (jh) jbd2_journal_refile_buffer(journal, jh);
++            break;
++        }
++        jh_next = jh->b_tnext;
++        if (jh) jbd2_journal_refile_buffer(journal, jh);
++		jh = jh_next;
++    }
++    commit_transaction->t_num_dirty_blocks = 0;
++    mutex_unlock(&commit_transaction->t_dirty_data_mutex);
++    /* */
++}
++
++unsigned prev_dirty_time = 0;
++int dirty_count = 0;
++
++/* ext4: handling dirty data. */
++int jbd2_journal_dirty_data(handle_t *handle, struct buffer_head *bh)
++{
++	transaction_t *transaction = handle->h_transaction;
++	journal_t *journal = transaction->t_journal;
++	struct journal_head *jh = bh2jh(bh);
++	int ret = 0;
++
++	jbd_debug(5, "journal_head %p\n", jh);
++	JBUFFER_TRACE(jh, "entry");
++	if (is_handle_aborted(handle))
++		goto out;
++	if (!buffer_jbd(bh)) {
++		ret = -EUCLEAN;
++		goto out;
++	}
++
++	jbd_lock_bh_state(bh);
++
++	if (jh->b_modified == 0) {
++		/*
++		 * This buffer's got modified and becoming part
++		 * of the transaction. This needs to be done
++		 * once a transaction -bzzz
++		 */
++		jh->b_modified = 1;
++		J_ASSERT_JH(jh, handle->h_buffer_credits > 0);
++		handle->h_buffer_credits--;
++	}
++
++	set_buffer_jbddirty(bh);
++
++	JBUFFER_TRACE(jh, "file as BJ_Dirtydata");
++	spin_lock(&journal->j_list_lock);
++	__jbd2_journal_file_buffer(jh, transaction, BJ_Dirtydata);
++	transaction->t_num_dirty_blocks++;
++	spin_unlock(&journal->j_list_lock);
++	jbd_unlock_bh_state(bh);
++
++    unsigned int diff;
++
++    /* If we've piled up 100 blocks, issue a print statement. */
++    if (transaction->t_num_dirty_blocks >= 64) {
++        diff = jiffies_to_msecs(jiffies - prev_dirty_time);
++        prev_dirty_time = jiffies;
++    }
++
++out:
++	JBUFFER_TRACE(jh, "exit");
++	WARN_ON(ret);	/* All errors are bugs, so dump the stack */
++	return ret;
++}
++
+ /*
+  * jbd2_journal_release_buffer: undo a get_write_access without any buffer
+  * updates, if the update decided in the end that it didn't need access.
+@@ -1588,6 +1728,8 @@ void __jbd2_journal_temp_unlink_buffer(s
+ 	case BJ_Reserved:
+ 		list = &transaction->t_reserved_list;
+ 		break;
++	case BJ_Dirtydata:
++	    list = &transaction->t_dirty_data_list;
+ 	}
+ 
+ 	__blist_del_buffer(list, jh);
+@@ -2010,6 +2152,12 @@ void __jbd2_journal_file_buffer(struct j
+ 	int was_dirty = 0;
+ 	struct buffer_head *bh = jh2bh(jh);
+ 
++	jbd_debug(6, "EXT4BF: adding buffer of block %lu to list\n", bh->b_blocknr);
++    jbd_debug(6, "EXT4BF: buffer in Metadata list? %d\n", jlist == BJ_Metadata);
++    jbd_debug(6, "EXT4BF: buffer in I/O list? %d\n", jlist == BJ_IO);
++    jbd_debug(6, "EXT4BF: buffer in Shadow list? %d\n", jlist == BJ_Shadow);
++    jbd_debug(6, "EXT4BF: buffer in LogCtl list? %d\n", jlist == BJ_LogCtl);
++
+ 	J_ASSERT_JH(jh, jbd_is_locked_bh_state(bh));
+ 	assert_spin_locked(&transaction->t_journal->j_list_lock);
+ 
+@@ -2066,6 +2214,9 @@ void __jbd2_journal_file_buffer(struct j
+ 	case BJ_Reserved:
+ 		list = &transaction->t_reserved_list;
+ 		break;
++	case BJ_Dirtydata:
++	    list = &transaction->t_dirty_data_list;
++	    break;
+ 	}
+ 
+ 	__blist_add_buffer(list, jh);
+@@ -2146,7 +2297,9 @@ void __jbd2_journal_refile_buffer(struct
+  */
+ void jbd2_journal_refile_buffer(journal_t *journal, struct journal_head *jh)
+ {
++    if (!jh) return;
+ 	struct buffer_head *bh = jh2bh(jh);
++    if (!bh) return;
+ 
+ 	/* Get reference so that buffer cannot be freed before we unlock it */
+ 	get_bh(bh);
