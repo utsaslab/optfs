@@ -53,6 +53,23 @@ module can be found at fs/ext4bf/.
    This will result in an OptFS file system on /dev/sdb1, mounted at
    /mnt/mydisk.
 
+#### Patches
+
+We have included two patches: a full patch and an educational patch. The full
+patch is the diff of OptFS kernel with a vanilla linux 3.2 kernel. Applying
+this patch directly to a 3.2 kernel will result in the OptFS kernel.
+
+The OptFS file-system module is modified on top of ext4 and jbd2. It contains
+the code of both ext4 and jbd2. Diffing this against just ext4 will result in
+a lot of redundant lines in the patch. Hence we have roughly merged ext4 and
+jbd2 into a module, and diffed OptFS against this. This patch is presented as
+optfs_patch_educational.
+
+Note that optfs_patch_educational should never be applied to an actual system:
+this will not work. It is provided so that users can easily view the
+differences in code between OptFS and ext4, and is not meant to be applied
+directly. 
+
 #### Notes 
 
 OptFS is built upon asynchronous durability notifications from the disk. Since
@@ -77,4 +94,5 @@ Note that the code is provided "as is": compiling and running the code will
 require some tweaking based on the operating system environment. The file
 system is only meant as a prototype and not meant for production use in any
 way.
+
 
