@@ -24,18 +24,52 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/arch/sh/boot/romimage/v
 -	end_data = .;
 -	}
 -}
-diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/Documentation/dontdiff optfs/Documentation/dontdiff
---- linux-3.2/Documentation/dontdiff	2013-10-30 18:19:52.870569679 -0500
-+++ optfs/Documentation/dontdiff	2013-09-17 14:40:17.000000000 -0500
-@@ -260,5 +260,3 @@ wakeup.lds
- zImage*
- zconf.hash.c
- zoffset.h
--*.md
--README
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/arch/x86/include/asm/unistd_64.h optfs/arch/x86/include/asm/unistd_64.h
+--- linux-3.2/arch/x86/include/asm/unistd_64.h	2012-01-04 17:55:44.000000000 -0600
++++ optfs/arch/x86/include/asm/unistd_64.h	2013-10-24 15:19:04.000000000 -0500
+@@ -687,6 +687,12 @@ __SYSCALL(__NR_process_vm_readv, sys_pro
+ #define __NR_process_vm_writev			311
+ __SYSCALL(__NR_process_vm_writev, sys_process_vm_writev)
+ 
++/* vijayc: Adding system calls for osync() and dysnc(). */
++#define __NR_osync				312
++__SYSCALL(__NR_osync, sys_osync)
++#define __NR_dsync				313
++__SYSCALL(__NR_dsync, sys_dsync)
++
+ #ifndef __NO_STUBS
+ #define __ARCH_WANT_OLD_READDIR
+ #define __ARCH_WANT_OLD_STAT
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/arch/x86/kernel/syscall_table_32.S optfs/arch/x86/kernel/syscall_table_32.S
+--- linux-3.2/arch/x86/kernel/syscall_table_32.S	2012-01-04 17:55:44.000000000 -0600
++++ optfs/arch/x86/kernel/syscall_table_32.S	2013-10-24 15:19:04.000000000 -0500
+@@ -348,3 +348,5 @@ ENTRY(sys_call_table)
+ 	.long sys_setns
+ 	.long sys_process_vm_readv
+ 	.long sys_process_vm_writev
++	.long sys_osync        /* vijayc: adding for OptFS */
++    .long sys_dsync
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/arch/xtensa/include/asm/unistd.h optfs/arch/xtensa/include/asm/unistd.h
+--- linux-3.2/arch/xtensa/include/asm/unistd.h	2012-01-04 17:55:44.000000000 -0600
++++ optfs/arch/xtensa/include/asm/unistd.h	2013-10-24 15:19:04.000000000 -0500
+@@ -686,7 +686,13 @@ __SYSCALL(307, sys_recvmmsg, 5)
+ #define __NR_setns				308
+ __SYSCALL(308, sys_setns, 2)
+ 
+-#define __NR_syscall_count			309
++/* vijayc: Adding in osync() and dsync() calls for OptFS. */
++#define __NR_osync 				 309
++__SYSCALL( 309, sys_osync, 1)
++#define __NR_dsync 				 310
++__SYSCALL( 310, sys_dsync, 1)
++
++#define __NR_syscall_count			311
+ 
+ /*
+  * sysxtensa syscall handler
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/buffer.c optfs/fs/buffer.c
 --- linux-3.2/fs/buffer.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/buffer.c	2013-09-17 14:40:17.000000000 -0500
++++ optfs/fs/buffer.c	2013-10-24 15:19:04.000000000 -0500
 @@ -1692,6 +1692,19 @@ static int __block_write_full_page(struc
  	do {
  		if (!buffer_mapped(bh))
@@ -58,45 +92,37 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/buffer.c optfs/fs/bu
  		 * lock the buffer then redirty the page.  Note that this can
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/balloc.c optfs/fs/ext4/balloc.c
 --- linux-3.2/fs/ext4/balloc.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/balloc.c	2013-10-30 19:41:33.658928370 -0500
-@@ -14,15 +14,13 @@
++++ optfs/fs/ext4/balloc.c	2013-10-31 17:57:03.696840383 -0500
+@@ -14,7 +14,7 @@
  #include <linux/time.h>
  #include <linux/capability.h>
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/quotaops.h>
  #include <linux/buffer_head.h>
  #include "ext4.h"
- #include "ext4_jbd2.h"
- #include "mballoc.h"
- 
--#include <trace/events/ext4.h>
--
- /*
-  * balloc.c contains the blocks allocation and deallocation routines
-  */
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/bitmap.c optfs/fs/ext4/bitmap.c
 --- linux-3.2/fs/ext4/bitmap.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/bitmap.c	2013-10-30 19:41:33.658928370 -0500
++++ optfs/fs/ext4/bitmap.c	2013-10-31 17:57:03.696840384 -0500
 @@ -8,7 +8,7 @@
   */
  
  #include <linux/buffer_head.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include "ext4.h"
  
  #ifdef EXT4FS_DEBUG
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/checkpoint.c optfs/fs/ext4/checkpoint.c
 --- linux-3.2/fs/ext4/checkpoint.c	2013-10-30 18:30:36.464358233 -0500
-+++ optfs/fs/ext4/checkpoint.c	2013-10-30 19:41:33.662928429 -0500
++++ optfs/fs/ext4/checkpoint.c	2013-10-31 17:57:03.699840434 -0500
 @@ -19,11 +19,10 @@
  
  #include <linux/time.h>
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/errno.h>
  #include <linux/slab.h>
  #include <linux/blkdev.h>
@@ -130,7 +156,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/checkpoint.c op
 -	for (i = 0; i < *batch_count; i++)
 +	for (i = 0; i < *batch_count; i++) {
 +		struct buffer_head *bh = journal->j_chkpt_bhs[i];
-+		bh->b_blocktype = 0;
++		bh->b_blocktype = B_BLOCKTYPE_NORMAL;
 +		bh->b_delayed_write = 0;
  		write_dirty_buffer(journal->j_chkpt_bhs[i], WRITE_SYNC);
 +    }
@@ -211,13 +237,13 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/checkpoint.c op
  		jh->b_cpnext = jh->b_cpprev = jh;
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/fs/ext4/commit.c
 --- linux-3.2/fs/ext4/commit.c	2013-10-30 18:30:36.464358233 -0500
-+++ optfs/fs/ext4/commit.c	2013-10-30 19:41:33.665928474 -0500
++++ optfs/fs/ext4/commit.c	2013-10-31 17:57:03.703840500 -0500
 @@ -15,7 +15,7 @@
  
  #include <linux/time.h>
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/errno.h>
  #include <linux/slab.h>
  #include <linux/mm.h>
@@ -300,11 +326,13 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  	struct blk_plug plug;
  
  	/*
-@@ -351,14 +381,13 @@ void jbd2_journal_commit_transaction(jou
+@@ -351,14 +381,15 @@ void jbd2_journal_commit_transaction(jou
  	commit_transaction = journal->j_running_transaction;
  	J_ASSERT(commit_transaction->t_state == T_RUNNING);
  
 -	trace_jbd2_start_commit(journal, commit_transaction);
++    int durable_commit = commit_transaction->t_durable_commit;
++
 +    mutex_lock(&commit_transaction->t_dirty_data_mutex);
  	jbd_debug(1, "JBD2: starting commit of transaction %d\n",
  			commit_transaction->t_tid);
@@ -316,7 +344,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  	stats.run.rs_wait = commit_transaction->t_max_wait;
  	stats.run.rs_locked = jiffies;
  	stats.run.rs_running = jbd2_time_diff(commit_transaction->t_start,
-@@ -434,7 +463,6 @@ void jbd2_journal_commit_transaction(jou
+@@ -434,7 +465,6 @@ void jbd2_journal_commit_transaction(jou
  	 */
  	jbd2_journal_switch_revoke_table(journal);
  
@@ -324,7 +352,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  	stats.run.rs_flushing = jiffies;
  	stats.run.rs_locked = jbd2_time_diff(stats.run.rs_locked,
  					     stats.run.rs_flushing);
-@@ -449,13 +477,61 @@ void jbd2_journal_commit_transaction(jou
+@@ -449,13 +479,61 @@ void jbd2_journal_commit_transaction(jou
  
  	jbd_debug(3, "JBD2: commit phase 2\n");
  
@@ -345,7 +373,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
 +        struct buffer_head *bh = jh2bh(jh);
 +        if (!bh) break;
 +        
-+        if (bh->b_blocktype == 1){
++        if (bh->b_blocktype == B_BLOCKTYPE_DATA){
 +            /* Process the data buffer. */
 +            get_bh(bh);
 +            set_buffer_jwrite(bh);
@@ -360,14 +388,14 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
 +            if (data_batch_count) {
 +                __flush_data_batch(&data_batch_count);
 +            }
-+            if (bh->b_blocktype !=1)
++            if (bh->b_blocktype != B_BLOCKTYPE_DATA)
 +                jbd2_journal_refile_buffer(journal, jh);
 +            break;
 +        }
 +        jh_next = jh->b_tnext;
 +        /* Don't refile journal heads which are type 1. We will check for them
 +         * later.*/
-+        if (bh->b_blocktype !=1)
++        if (bh->b_blocktype != B_BLOCKTYPE_DATA)
 +            jbd2_journal_refile_buffer(journal, jh);
 +        jh = jh_next;
 +    }
@@ -387,7 +415,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  
  	blk_start_plug(&plug);
  	jbd2_journal_write_revoke_records(journal, commit_transaction,
-@@ -473,7 +549,6 @@ void jbd2_journal_commit_transaction(jou
+@@ -473,7 +551,6 @@ void jbd2_journal_commit_transaction(jou
  	commit_transaction->t_state = T_COMMIT;
  	write_unlock(&journal->j_state_lock);
  
@@ -395,7 +423,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  	stats.run.rs_logging = jiffies;
  	stats.run.rs_flushing = jbd2_time_diff(stats.run.rs_flushing,
  					       stats.run.rs_logging);
-@@ -494,6 +569,9 @@ void jbd2_journal_commit_transaction(jou
+@@ -494,6 +571,9 @@ void jbd2_journal_commit_transaction(jou
  
  		jh = commit_transaction->t_buffers;
  
@@ -405,7 +433,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  		/* If we're in abort mode, we just un-journal the buffer and
  		   release it. */
  
-@@ -526,6 +604,7 @@ void jbd2_journal_commit_transaction(jou
+@@ -526,6 +606,7 @@ void jbd2_journal_commit_transaction(jou
  
  			descriptor = jbd2_journal_get_descriptor_buffer(journal);
  			if (!descriptor) {
@@ -413,7 +441,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  				jbd2_journal_abort(journal, -EIO);
  				continue;
  			}
-@@ -550,17 +629,56 @@ void jbd2_journal_commit_transaction(jou
+@@ -550,17 +631,56 @@ void jbd2_journal_commit_transaction(jou
  			BUFFER_TRACE(bh, "ph3: file as descriptor");
  			jbd2_journal_file_buffer(descriptor, commit_transaction,
  					BJ_LogCtl);
@@ -440,8 +468,8 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
 +                    tag_flag |= JBD2_FLAG_SAME_UUID;
 +
 +                tag = (journal_block_tag_t *) tagp;
-+                write_tag_block(tag_bytes, tag, jh2bh(jh)->b_blocknr,
-+                        crc32_data_sum, 1);
++                write_tag_block(tag_bytes, tag, entry->b_blocknr,
++                        entry->crc32_data_sum, T_BLOCKTYPE_NEWLYAPPENDEDDATA);
 +                tag->t_flags = cpu_to_be32(tag_flag);
 +                tagp += tag_bytes;
 +                space_left -= tag_bytes;
@@ -457,9 +485,9 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
 +#endif
 +        }
 +        /* Where is the buffer to be written? */
- 
-+        jbd_debug(6, "EXT4BF: processing a metadata block\n");
 +
++        jbd_debug(6, "EXT4BF: processing a metadata block\n");
+ 
 +        /* ext4: continue with normal procesing. */
  		err = jbd2_journal_next_log_block(journal, &blocknr);
 +		
@@ -473,7 +501,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  		}
  
  		/*
-@@ -590,6 +708,7 @@ void jbd2_journal_commit_transaction(jou
+@@ -590,6 +710,7 @@ void jbd2_journal_commit_transaction(jou
  		flags = jbd2_journal_write_metadata_buffer(commit_transaction,
  						      jh, &new_jh, blocknr);
  		if (flags < 0) {
@@ -481,7 +509,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  			jbd2_journal_abort(journal, flags);
  			continue;
  		}
-@@ -605,22 +724,26 @@ void jbd2_journal_commit_transaction(jou
+@@ -605,22 +726,29 @@ void jbd2_journal_commit_transaction(jou
  		if (!first_tag)
  			tag_flag |= JBD2_FLAG_SAME_UUID;
  
@@ -498,7 +526,10 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
 -			first_tag = 0;
 -		}
 +        tag = (journal_block_tag_t *) tagp;
-+        write_tag_block(tag_bytes, tag, jh2bh(jh)->b_blocknr, 0, 0);
++		if (jh2bh(jh)->b_blocktype == B_BLOCKTYPE_DATA)
++			write_tag_block(tag_bytes, tag, jh2bh(jh)->b_blocknr, 0, T_BLOCKTYPE_OVERWRITTENDATA);
++		else
++			write_tag_block(tag_bytes, tag, jh2bh(jh)->b_blocknr, 0, T_BLOCKTYPE_NOTDATA);
 +        tag->t_flags = cpu_to_be32(tag_flag);
 +        tagp += tag_bytes;
 +        space_left -= tag_bytes;
@@ -520,7 +551,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  		if (bufs == journal->j_wbufsize ||
  		    commit_transaction->t_buffers == NULL ||
  		    space_left < tag_bytes + 16) {
-@@ -671,10 +794,36 @@ start_journal_io:
+@@ -671,10 +799,36 @@ start_journal_io:
  		err = 0;
  	}
  
@@ -557,7 +588,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  	/* 
  	 * If the journal is not located on the file system device,
  	 * then we must flush the file system device before we issue
-@@ -719,6 +868,8 @@ wait_for_iobuf:
+@@ -719,6 +873,8 @@ wait_for_iobuf:
  
  		jh = commit_transaction->t_iobuf_list->b_tprev;
  		bh = jh2bh(jh);
@@ -566,7 +597,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  		if (buffer_locked(bh)) {
  			wait_on_buffer(bh);
  			goto wait_for_iobuf;
-@@ -780,6 +931,7 @@ wait_for_iobuf:
+@@ -780,6 +936,7 @@ wait_for_iobuf:
  
  		jh = commit_transaction->t_log_list->b_tprev;
  		bh = jh2bh(jh);
@@ -574,7 +605,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  		if (buffer_locked(bh)) {
  			wait_on_buffer(bh);
  			goto wait_for_ctlbuf;
-@@ -787,6 +939,7 @@ wait_for_iobuf:
+@@ -787,6 +944,7 @@ wait_for_iobuf:
  		if (cond_resched())
  			goto wait_for_ctlbuf;
  
@@ -582,7 +613,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  		if (unlikely(!buffer_uptodate(bh)))
  			err = -EIO;
  
-@@ -798,8 +951,10 @@ wait_for_iobuf:
+@@ -798,8 +956,10 @@ wait_for_iobuf:
  		/* AKPM: bforget here */
  	}
  
@@ -595,7 +626,18 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  
  	jbd_debug(3, "JBD2: commit phase 5\n");
  	write_lock(&journal->j_state_lock);
-@@ -822,8 +977,10 @@ wait_for_iobuf:
+@@ -816,14 +976,19 @@ wait_for_iobuf:
+ 	}
+ 	if (cbh)
+ 		err = journal_wait_on_commit_record(journal, cbh);
+-	if (JBD2_HAS_INCOMPAT_FEATURE(journal,
++
++	if ((JBD2_HAS_INCOMPAT_FEATURE(journal,
+ 				      JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT) &&
+-	    journal->j_flags & JBD2_BARRIER) {
++	    journal->j_flags & JBD2_BARRIER)
++	    || (durable_commit == 1))
++	{
  		blkdev_issue_flush(journal->j_dev, GFP_KERNEL, NULL);
  	}
  
@@ -608,17 +650,22 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  
  	/* End of a transaction!  Finally, we can do checkpoint
             processing: any buffers committed as a result of this
-@@ -839,6 +996,9 @@ wait_for_iobuf:
+@@ -839,6 +1004,14 @@ wait_for_iobuf:
  	J_ASSERT(commit_transaction->t_shadow_list == NULL);
  	J_ASSERT(commit_transaction->t_log_list == NULL);
  
 +    /* ext4: set checkpoint time for the whole transaction. */
-+    commit_transaction->t_checkpoint_time = jiffies + msecs_to_jiffies(JBDBF_CHECKPOINT_INTERVAL); 
++    if (durable_commit == 1) {
++        commit_transaction->t_checkpoint_time = jiffies; 
++    } else {
++        commit_transaction->t_checkpoint_time = jiffies
++            + msecs_to_jiffies(JBDBF_CHECKPOINT_INTERVAL); 
++    }
 +
  restart_loop:
  	/*
  	 * As there are other places (journal_unmap_buffer()) adding buffers
-@@ -853,6 +1013,7 @@ restart_loop:
+@@ -853,6 +1026,7 @@ restart_loop:
  		jh = commit_transaction->t_forget;
  		spin_unlock(&journal->j_list_lock);
  		bh = jh2bh(jh);
@@ -626,21 +673,23 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  		/*
  		 * Get a reference so that bh cannot be freed before we are
  		 * done with it.
-@@ -861,6 +1022,13 @@ restart_loop:
+@@ -861,6 +1035,15 @@ restart_loop:
  		jbd_lock_bh_state(bh);
  		J_ASSERT_JH(jh,	jh->b_transaction == commit_transaction);
  
 +        /* ext4: tagging the block so that it will not be written by the VM
 +         * subsystem. The VM subsystem will write this out after the checkpoint
 +         * time embedded in the block. */
-+        bh->b_blocktype = 3;
-+        bh->b_checkpoint_time = jiffies + msecs_to_jiffies(JBDBF_CHECKPOINT_INTERVAL); 
-+        bh->b_delayed_write = 1;
++        if (durable_commit != 1) {
++            bh->b_blocktype = B_BLOCKTYPE_DURABLECHECKPOINT;
++            bh->b_checkpoint_time = jiffies + msecs_to_jiffies(JBDBF_CHECKPOINT_INTERVAL); 
++            bh->b_delayed_write = 1;
++        }
 +
  		/*
  		 * If there is undo-protected committed data against
  		 * this buffer, then we can remove it now.  If it is a
-@@ -944,6 +1112,7 @@ restart_loop:
+@@ -944,6 +1127,7 @@ restart_loop:
  		cond_resched_lock(&journal->j_list_lock);
  	}
  	spin_unlock(&journal->j_list_lock);
@@ -648,7 +697,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  	/*
  	 * This is a bit sleazy.  We use j_list_lock to protect transition
  	 * of a transaction into T_FINISHED state and calling
-@@ -952,6 +1121,7 @@ restart_loop:
+@@ -952,6 +1136,7 @@ restart_loop:
  	 */
  	write_lock(&journal->j_state_lock);
  	spin_lock(&journal->j_list_lock);
@@ -656,7 +705,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  	/*
  	 * Now recheck if some buffers did not get attached to the transaction
  	 * while the lock was dropped...
-@@ -978,8 +1148,6 @@ restart_loop:
+@@ -978,8 +1163,6 @@ restart_loop:
  	stats.ts_tid = commit_transaction->t_tid;
  	stats.run.rs_handle_count =
  		atomic_read(&commit_transaction->t_handle_count);
@@ -665,7 +714,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  
  	/*
  	 * Calculate overall stats
-@@ -1038,7 +1206,7 @@ restart_loop:
+@@ -1038,7 +1221,7 @@ restart_loop:
  	if (journal->j_commit_callback)
  		journal->j_commit_callback(journal, commit_transaction);
  
@@ -676,13 +725,13 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/commit.c optfs/
  	if (to_free)
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/dir.c optfs/fs/ext4/dir.c
 --- linux-3.2/fs/ext4/dir.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/dir.c	2013-10-30 19:41:33.666928488 -0500
++++ optfs/fs/ext4/dir.c	2013-10-31 17:57:03.704840517 -0500
 @@ -22,7 +22,7 @@
   */
  
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/buffer_head.h>
  #include <linux/slab.h>
  #include <linux/rbtree.h>
@@ -699,7 +748,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/dir.c optfs/fs/
  	curr_pos = hash2pos(fname->hash, fname->minor_hash);
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4_extents.h optfs/fs/ext4/ext4_extents.h
 --- linux-3.2/fs/ext4/ext4_extents.h	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/ext4_extents.h	2013-10-30 19:41:33.672928576 -0500
++++ optfs/fs/ext4/ext4_extents.h	2013-10-31 17:57:03.711840635 -0500
 @@ -42,15 +42,16 @@
   */
  #define CHECK_BINSEARCH__
@@ -721,13 +770,13 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4_extents.h 
   * If EXT_STATS is defined then stats numbers are collected.
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4.h optfs/fs/ext4/ext4.h
 --- linux-3.2/fs/ext4/ext4.h	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/ext4.h	2013-10-30 19:41:33.672928575 -0500
++++ optfs/fs/ext4/ext4.h	2013-10-31 17:57:03.710840619 -0500
 @@ -19,7 +19,7 @@
  #include <linux/types.h>
  #include <linux/blkdev.h>
  #include <linux/magic.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/quota.h>
  #include <linux/rwsem.h>
  #include <linux/rbtree.h>
@@ -792,7 +841,18 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4.h optfs/fs
  
  /*
   * Default journal batch times
-@@ -1832,6 +1839,24 @@ extern int ext4_init_inode_table(struct 
+@@ -1814,6 +1821,10 @@ extern void ext4_htree_free_dir_info(str
+ extern int ext4_sync_file(struct file *, loff_t, loff_t, int);
+ extern int ext4_flush_completed_IO(struct inode *);
+ 
++/* vijayc: for the osync() and dsync() system calls. */
++extern int ext4_osync_file(struct file *, loff_t, loff_t);
++extern int ext4_dsync_file(struct file *, loff_t, loff_t);
++
+ /* hash.c */
+ extern int ext4fs_dirhash(const char *name, int len, struct
+ 			  dx_hash_info *hinfo);
+@@ -1832,6 +1843,24 @@ extern int ext4_init_inode_table(struct 
  				 ext4_group_t group, int barrier);
  
  /* mballoc.c */
@@ -819,7 +879,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4.h optfs/fs
  extern int ext4_mb_init(struct super_block *, int);
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4_jbd2.c optfs/fs/ext4/ext4_jbd2.c
 --- linux-3.2/fs/ext4/ext4_jbd2.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/ext4_jbd2.c	2013-10-30 19:41:33.674928604 -0500
++++ optfs/fs/ext4/ext4_jbd2.c	2013-10-31 17:57:03.712840651 -0500
 @@ -4,7 +4,9 @@
  
  #include "ext4_jbd2.h"
@@ -841,7 +901,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4_jbd2.c opt
 +
 +#ifdef DCHECKSUM
 +        /* ext4: handle cases where it is a data block. */
-+        if (bh && bh->b_blocktype == 1) {
++        if (bh && bh->b_blocktype == B_BLOCKTYPE_DATA) {
 +#endif
 +#ifdef PARTJ
 +            if (!buffer_new(bh))
@@ -862,25 +922,47 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4_jbd2.c opt
  	} else {
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ext4_jbd2.h optfs/fs/ext4/ext4_jbd2.h
 --- linux-3.2/fs/ext4/ext4_jbd2.h	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/ext4_jbd2.h	2013-10-30 19:41:33.674928605 -0500
++++ optfs/fs/ext4/ext4_jbd2.h	2013-10-31 17:57:03.712840651 -0500
 @@ -16,7 +16,7 @@
  #define _EXT4_JBD2_H
  
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include "ext4.h"
  
  #define EXT4_JOURNAL(inode)	(EXT4_SB((inode)->i_sb)->s_journal)
+@@ -238,6 +238,13 @@ static inline int ext4_journal_force_com
+ 	return 0;
+ }
+ 
++static inline int ext4_journal_force_dsync_commit(journal_t *journal)
++{
++	if (journal)
++		return jbd2_journal_force_dsync_commit(journal);
++	return 0;
++}
++
+ static inline int ext4_jbd2_file_inode(handle_t *handle, struct inode *inode)
+ {
+ 	if (ext4_handle_valid(handle))
+@@ -260,6 +267,7 @@ static inline void ext4_update_inode_fsy
+ 
+ /* super.c */
+ int ext4_force_commit(struct super_block *sb);
++int ext4_force_dsync_commit(struct super_block *sb);
+ 
+ static inline int ext4_should_journal_data(struct inode *inode)
+ {
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/extents.c optfs/fs/ext4/extents.c
 --- linux-3.2/fs/ext4/extents.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/extents.c	2013-10-30 19:41:33.686928778 -0500
++++ optfs/fs/ext4/extents.c	2013-10-31 17:57:03.726840884 -0500
 @@ -32,7 +32,7 @@
  #include <linux/module.h>
  #include <linux/fs.h>
  #include <linux/time.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/highuid.h>
  #include <linux/pagemap.h>
  #include <linux/quotaops.h>
@@ -938,7 +1020,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/extents.c optfs
  
  	trace_ext4_find_delalloc_range(inode, lblk_start, lblk_end,
 -					search_hint_reverse, 0, 0);
-+    					search_hint_reverse, 0, 0);
++    //					search_hint_reverse, 0, 0);
  	return 0;
  }
  
@@ -979,70 +1061,216 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/extents.c optfs
  		return 0;
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/file.c optfs/fs/ext4/file.c
 --- linux-3.2/fs/ext4/file.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/file.c	2013-10-30 19:41:33.686928778 -0500
++++ optfs/fs/ext4/file.c	2013-10-31 17:57:03.726840884 -0500
 @@ -20,7 +20,7 @@
  
  #include <linux/time.h>
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/mount.h>
  #include <linux/path.h>
  #include <linux/quotaops.h>
-@@ -200,7 +200,7 @@ static int ext4_file_open(struct inode *
- 				return -ENOMEM;
- 			}
- 			ei->jinode = jinode;
--			jbd2_journal_init_jbd_inode(ei->jinode, inode);
-+			jbd2_journal_init_jbd2_inode(ei->jinode, inode);
- 			jinode = NULL;
- 		}
- 		spin_unlock(&inode->i_lock);
+@@ -242,6 +242,8 @@ const struct file_operations ext4_file_o
+ 	.open		= ext4_file_open,
+ 	.release	= ext4_release_file,
+ 	.fsync		= ext4_sync_file,
++	.osync		= ext4_osync_file,
++	.dsync		= ext4_dsync_file,
+ 	.splice_read	= generic_file_splice_read,
+ 	.splice_write	= generic_file_splice_write,
+ 	.fallocate	= ext4_fallocate,
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/fsync.c optfs/fs/ext4/fsync.c
 --- linux-3.2/fs/ext4/fsync.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/fsync.c	2013-10-30 19:41:33.688928807 -0500
-@@ -26,7 +26,7 @@
++++ optfs/fs/ext4/fsync.c	2013-10-31 17:57:03.728840917 -0500
+@@ -26,13 +26,14 @@
  #include <linux/fs.h>
  #include <linux/sched.h>
  #include <linux/writeback.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/blkdev.h>
  
  #include "ext4.h"
+ #include "ext4_jbd2.h"
+ 
+-#include <trace/events/ext4.h>
++#define OSYNC_COMMIT 0
++#define DSYNC_COMMIT 1
+ 
+ static void dump_completed_IO(struct inode * inode)
+ {
+@@ -214,8 +215,6 @@ int ext4_sync_file(struct file *file, lo
+ 
+ 	J_ASSERT(ext4_journal_current_handle() == NULL);
+ 
+-	trace_ext4_sync_file_enter(file, datasync);
+-
+ 	ret = filemap_write_and_wait_range(inode->i_mapping, start, end);
+ 	if (ret)
+ 		return ret;
+@@ -264,6 +263,127 @@ int ext4_sync_file(struct file *file, lo
+ 		blkdev_issue_flush(inode->i_sb->s_bdev, GFP_KERNEL, NULL);
+  out:
+ 	mutex_unlock(&inode->i_mutex);
+-	trace_ext4_sync_file_exit(inode, ret);
++	return ret;
++}
++
++int ext4_osync_file(struct file *file, loff_t start, loff_t end)
++{
++	struct inode *inode = file->f_mapping->host;
++	struct ext4_inode_info *ei = EXT4_I(inode);
++	journal_t *journal = EXT4_SB(inode->i_sb)->s_journal;
++	int ret;
++	tid_t commit_tid;
++	bool needs_barrier = false;
++    int datasync = 0;
++
++	J_ASSERT(ext4_journal_current_handle() == NULL);
++
++	ret = filemap_write_and_wait_range(inode->i_mapping, start, end);
++	if (ret)
++		return ret;
++	mutex_lock(&inode->i_mutex);
++
++	if (inode->i_sb->s_flags & MS_RDONLY)
++		goto out;
++
++	ret = ext4_flush_completed_IO(inode);
++	if (ret < 0)
++		goto out;
++
++	if (!journal) {
++		ret = __sync_inode(inode, datasync);
++		if (!ret && !list_empty(&inode->i_dentry))
++			ret = ext4_sync_parent(inode);
++		goto out;
++	}
++
++	/*
++	 * data=writeback,ordered:
++	 *  The caller's filemap_fdatawrite()/wait will sync the data.
++	 *  Metadata is in the journal, we wait for proper transaction to
++	 *  commit here.
++	 *
++	 * data=journal:
++	 *  filemap_fdatawrite won't do anything (the buffers are clean).
++	 *  ext4_force_commit will write the file data into the journal and
++	 *  will wait on that.
++	 *  filemap_fdatawait() will encounter a ton of newly-dirtied pages
++	 *  (they were dirtied by commit).  But that's OK - the blocks are
++	 *  safe in-journal, which is all fsync() needs to ensure.
++	 */
++	if (ext4_should_journal_data(inode)) {
++		ret = ext4_force_commit(inode->i_sb);
++		goto out;
++	}
++
++	commit_tid = ei->i_sync_tid;
++	jbd2_log_start_optfs_commit(journal, commit_tid, OSYNC_COMMIT);
++	ret = jbd2_log_wait_commit(journal, commit_tid);
++ out:
++	mutex_unlock(&inode->i_mutex);
++	return ret;
++}
++
++int ext4_dsync_file(struct file *file, loff_t start, loff_t end)
++{
++	struct inode *inode = file->f_mapping->host;
++	struct ext4_inode_info *ei = EXT4_I(inode);
++	journal_t *journal = EXT4_SB(inode->i_sb)->s_journal;
++	int ret;
++	tid_t commit_tid;
++	bool needs_barrier = false;
++    int datasync = 0;
++
++	J_ASSERT(ext4_journal_current_handle() == NULL);
++    
++    ext4_debug("Calling dsync() for inode %lu\n", inode->i_ino);
++
++	ret = filemap_write_and_wait_range(inode->i_mapping, start, end);
++	if (ret)
++		return ret;
++	mutex_lock(&inode->i_mutex);
++
++	if (inode->i_sb->s_flags & MS_RDONLY)
++		goto out;
++
++	ret = ext4_flush_completed_IO(inode);
++	if (ret < 0)
++		goto out;
++
++	if (!journal) {
++		ret = __sync_inode(inode, datasync);
++		if (!ret && !list_empty(&inode->i_dentry))
++			ret = ext4_sync_parent(inode);
++		goto out;
++	}
++
++	/*
++	 * data=writeback,ordered:
++	 *  The caller's filemap_fdatawrite()/wait will sync the data.
++	 *  Metadata is in the journal, we wait for proper transaction to
++	 *  commit here.
++	 *
++	 * data=journal:
++	 *  filemap_fdatawrite won't do anything (the buffers are clean).
++	 *  ext4_force_commit will write the file data into the journal and
++	 *  will wait on that.
++	 *  filemap_fdatawait() will encounter a ton of newly-dirtied pages
++	 *  (they were dirtied by commit).  But that's OK - the blocks are
++	 *  safe in-journal, which is all fsync() needs to ensure.
++	 */
++	if (ext4_should_journal_data(inode)) {
++		ret = ext4_force_dsync_commit(inode->i_sb);
++		goto out;
++	}
++
++	commit_tid = datasync ? ei->i_datasync_tid : ei->i_sync_tid;
++	jbd2_log_start_optfs_commit(journal, commit_tid, DSYNC_COMMIT);
++	ret = jbd2_log_wait_commit(journal, commit_tid);
++
++ out:
++	/* Issue a flush because this is dsync. */
++	// blkdev_issue_flush(inode->i_sb->s_bdev, GFP_KERNEL, NULL);
++
++	mutex_unlock(&inode->i_mutex);
+ 	return ret;
+ }
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/hash.c optfs/fs/ext4/hash.c
 --- linux-3.2/fs/ext4/hash.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/hash.c	2013-10-30 19:41:33.689928822 -0500
++++ optfs/fs/ext4/hash.c	2013-10-31 17:57:03.728840917 -0500
 @@ -10,7 +10,7 @@
   */
  
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/cryptohash.h>
  #include "ext4.h"
  
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ialloc.c optfs/fs/ext4/ialloc.c
 --- linux-3.2/fs/ext4/ialloc.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/ialloc.c	2013-10-30 19:41:33.692928866 -0500
++++ optfs/fs/ext4/ialloc.c	2013-10-31 17:57:03.730840952 -0500
 @@ -14,7 +14,7 @@
  
  #include <linux/time.h>
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/stat.h>
  #include <linux/string.h>
  #include <linux/quotaops.h>
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/inode.c optfs/fs/ext4/inode.c
 --- linux-3.2/fs/ext4/inode.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/inode.c	2013-10-30 19:41:33.708929099 -0500
++++ optfs/fs/ext4/inode.c	2013-10-31 17:57:03.747841235 -0500
 @@ -21,7 +21,7 @@
  #include <linux/module.h>
  #include <linux/fs.h>
  #include <linux/time.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/highuid.h>
  #include <linux/pagemap.h>
  #include <linux/quotaops.h>
@@ -1080,7 +1308,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/inode.c optfs/f
 +        }
 +        ext4_debug("ext4: marking block %lu as data\n", bh->b_blocknr);
 +        ext4_debug("ext4: block type already present: %d\n", bh->b_blocktype);
-+        bh->b_blocktype = 1;
++        bh->b_blocktype = B_BLOCKTYPE_DATA;
 +    }
 +}
 +/* */
@@ -1119,7 +1347,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/inode.c optfs/f
  	set_buffer_uptodate(bh);
 +	jbd_debug(6, "EXT4BF: data checksum at write_end: %u\n", jbd2_checksum_data(0, bh));
 +	jbd_debug(6, "EXT4BF: testing whether buffer is new: %d\n", buffer_new(bh));
-+    if (bh->b_blocktype == 1) {
++    if (bh->b_blocktype == B_BLOCKTYPE_DATA) {
 +#endif
 +#ifdef PARTJ
 +        if (buffer_new(bh)) {
@@ -1181,26 +1409,19 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/inode.c optfs/f
  
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/ioctl.c optfs/fs/ext4/ioctl.c
 --- linux-3.2/fs/ext4/ioctl.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/ioctl.c	2013-10-30 19:41:33.708929100 -0500
++++ optfs/fs/ext4/ioctl.c	2013-10-31 17:57:03.748841251 -0500
 @@ -8,7 +8,7 @@
   */
  
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/capability.h>
  #include <linux/time.h>
  #include <linux/compat.h>
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs/ext4/jbd2.h
 --- linux-3.2/fs/ext4/jbd2.h	2013-10-30 19:25:20.540736097 -0500
-+++ optfs/fs/ext4/jbd2.h	2013-10-30 19:41:33.711929145 -0500
-@@ -1,5 +1,5 @@
- /*
-- * linux/include/linux/jbd2.h
-+ * linux/include/linux/jbd.h
-  *
-  * Written by Stephen C. Tweedie <sct@redhat.com>
-  *
++++ optfs/fs/ext4/jbd2.h	2013-10-31 17:57:03.752841319 -0500
 @@ -16,6 +16,7 @@
  #ifndef _LINUX_JBD2_H
  #define _LINUX_JBD2_H
@@ -1214,7 +1435,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  #include <linux/types.h>
  #include <linux/buffer_head.h>
 -#include <linux/journal-head.h>
-+#include "journal-bf-head.h"
++#include "journal-head.h"
  #include <linux/stddef.h>
  #include <linux/bit_spinlock.h>
  #include <linux/mutex.h>
@@ -1222,9 +1443,9 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
   */
  #define JBD2_DEFAULT_MAX_COMMIT_AGE 5
  
-+#define jbd_debug(f, a...)	/**/
++//#define jbd_debug(f, a...)	/**/
 +
-+/*
++
 +#define jbd_debug(n, f, a...)						\
 +	do {								\
 +		if ((n) <= 10) {			\
@@ -1233,13 +1454,13 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
 +			printk (f, ## a);				\
 +		}							\
 +	} while (0)
-+*/
++
 +
 +#define CONFIG_JBD2_DEBUG
  #ifdef CONFIG_JBD2_DEBUG
  /*
   * Define JBD2_EXPENSIVE_CHECKING to enable more expensive internal
-@@ -58,16 +73,7 @@
+@@ -58,21 +73,14 @@
  #define JBD2_EXPENSIVE_CHECKING
  extern u8 jbd2_journal_enable_debug;
  
@@ -1253,11 +1474,18 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
 -	} while (0)
 -#else
 -#define jbd_debug(f, a...)	/**/
-+// #define jbd_debug(f, a...)	/**/
  #endif
  
  extern void *jbd2_alloc(size_t size, gfp_t flags);
-@@ -172,11 +178,18 @@ struct commit_header {
+ extern void jbd2_free(void *ptr, size_t size);
+ 
++#define OSYNC_COMMIT 0
++#define DSYNC_COMMIT 1
++
+ #define JBD2_MIN_JOURNAL_BLOCKS 1024
+ 
+ #ifdef __KERNEL__
+@@ -172,11 +180,22 @@ struct commit_header {
   * raw struct shouldn't be used for pointer math or sizeof() - use
   * journal_tag_bytes(journal) instead to compute this.
   */
@@ -1272,11 +1500,15 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
 +	unsigned char   t_chksum_size;
 +	unsigned char 	t_padding[2];
 +	__be32 		t_chksum[JBD2_CHECKSUM_BYTES];
++
++#define T_BLOCKTYPE_NOTDATA 0
++#define T_BLOCKTYPE_NEWLYAPPENDEDDATA 2
++#define T_BLOCKTYPE_OVERWRITTENDATA 3
 +	__be32         t_blocktype;
  } journal_block_tag_t;
  
  #define JBD2_TAG_SIZE32 (offsetof(journal_block_tag_t, t_blocknr_high))
-@@ -264,6 +277,8 @@ typedef struct journal_superblock_s
+@@ -264,6 +283,8 @@ typedef struct journal_superblock_s
  #define JBD2_FEATURE_INCOMPAT_64BIT		0x00000002
  #define JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT	0x00000004
  
@@ -1285,7 +1517,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  /* Features known to this kernel version: */
  #define JBD2_KNOWN_COMPAT_FEATURES	JBD2_FEATURE_COMPAT_CHECKSUM
  #define JBD2_KNOWN_ROCOMPAT_FEATURES	0
-@@ -275,7 +290,7 @@ typedef struct journal_superblock_s
+@@ -275,7 +296,7 @@ typedef struct journal_superblock_s
  
  #include <linux/fs.h>
  #include <linux/sched.h>
@@ -1294,7 +1526,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  
  #define J_ASSERT(assert)	BUG_ON(!(assert))
  
-@@ -303,7 +318,7 @@ typedef struct journal_superblock_s
+@@ -303,7 +324,7 @@ typedef struct journal_superblock_s
  #define J_EXPECT_JH(jh, expr, why...)	__journal_expect(expr, ## why)
  #endif
  
@@ -1303,7 +1535,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  #define __JI_COMMIT_RUNNING 0
  /* Commit of the inode data in progress. We use this flag to protect us from
   * concurrent deletion of inode. We cannot use reference to inode for this
-@@ -311,8 +326,48 @@ typedef struct journal_superblock_s
+@@ -311,8 +332,48 @@ typedef struct journal_superblock_s
   */
  #define JI_COMMIT_RUNNING (1 << __JI_COMMIT_RUNNING)
  
@@ -1343,9 +1575,9 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
 + *
 + */
 +
-+struct transaction_bf_s;
++struct transaction_s;
 +struct transaction_chp_stats_s;
-+typedef struct transaction_bf_s transaction_t;  /* Compound transaction type */
++typedef struct transaction_s transaction_t;  /* Compound transaction type */
 +
  /**
 - * struct jbd_inode is the structure linking inodes in ordered mode
@@ -1353,7 +1585,17 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
   *   present in a transaction so that we can sync them during commit.
   */
  struct jbd2_inode {
-@@ -411,43 +466,7 @@ struct transaction_chp_stats_s {
+@@ -382,6 +443,9 @@ struct jbd2_journal_handle
+ 	 * (counts only buffers dirtied when !h_cowing) */
+ 	unsigned int	h_user_credits:14;
+ 
++    /* vijayc: indicating whether this handle is dsync, for
++     * force commits. */
++    int         h_durable_commit;
+ 
+ #ifdef CONFIG_DEBUG_LOCK_ALLOC
+ 	struct lockdep_map	h_lockdep_map;
+@@ -411,42 +475,6 @@ struct transaction_chp_stats_s {
  	__u32			cs_dropped;
  };
  
@@ -1393,12 +1635,10 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
 - *
 - */
 -
--struct transaction_s
-+struct transaction_bf_s
+ struct transaction_s
  {
  	/* Pointer to the journal for this transaction. [no locking] */
- 	journal_t		*t_journal;
-@@ -552,6 +571,13 @@ struct transaction_s
+@@ -552,6 +580,13 @@ struct transaction_s
  	 */
  	unsigned long		t_start;
  
@@ -1412,7 +1652,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  	/*
  	 * Checkpointing stats [j_checkpoint_sem]
  	 */
-@@ -605,6 +631,24 @@ struct transaction_s
+@@ -605,6 +640,28 @@ struct transaction_s
  	 * structures associated with the transaction
  	 */
  	struct list_head	t_private_list;
@@ -1434,10 +1674,14 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
 +	/* Spin lock to protect the dirty data list for each transaction. */
 +	struct semaphore  t_dirty_data_mutex;
 +
++    /*
++	 * Transaction commit type. (0=osync, 1=dsync).
++	 */
++	int			t_durable_commit;
  };
  
  struct transaction_run_stats_s {
-@@ -633,6 +677,15 @@ jbd2_time_diff(unsigned long start, unsi
+@@ -633,6 +690,15 @@ jbd2_time_diff(unsigned long start, unsi
  	return end + (MAX_JIFFY_OFFSET - start);
  }
  
@@ -1453,7 +1697,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  #define JBD2_NR_BATCH	64
  
  /**
-@@ -804,6 +857,11 @@ struct journal_s
+@@ -804,6 +870,11 @@ struct journal_s
  	 */
  	unsigned long		j_free;
  
@@ -1465,7 +1709,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  	/*
  	 * Journal start and end: the block numbers of the first usable block
  	 * and one beyond the last usable block in the journal. [j_state_lock]
-@@ -1017,6 +1075,9 @@ jbd2_journal_write_metadata_buffer(trans
+@@ -1017,6 +1088,9 @@ jbd2_journal_write_metadata_buffer(trans
  			      struct journal_head **jh_out,
  			      unsigned long long   blocknr);
  
@@ -1475,7 +1719,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  /* Transaction locking */
  extern void		__wait_on_journal (journal_t *);
  
-@@ -1053,6 +1114,7 @@ extern int	 jbd2_journal_get_undo_access
+@@ -1053,6 +1127,7 @@ extern int	 jbd2_journal_get_undo_access
  void		 jbd2_journal_set_triggers(struct buffer_head *,
  					   struct jbd2_buffer_trigger_type *type);
  extern int	 jbd2_journal_dirty_metadata (handle_t *, struct buffer_head *);
@@ -1483,20 +1727,19 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  extern void	 jbd2_journal_release_buffer (handle_t *, struct buffer_head *);
  extern int	 jbd2_journal_forget (handle_t *, struct buffer_head *);
  extern void	 journal_sync_buffer (struct buffer_head *);
-@@ -1093,7 +1155,7 @@ extern int	   jbd2_journal_force_commit(
+@@ -1090,6 +1165,7 @@ extern void	   jbd2_journal_ack_err    (
+ extern int	   jbd2_journal_clear_err  (journal_t *);
+ extern int	   jbd2_journal_bmap(journal_t *, unsigned long, unsigned long long *);
+ extern int	   jbd2_journal_force_commit(journal_t *);
++extern int	   jbd2_journal_force_dsync_commit(journal_t *);
  extern int	   jbd2_journal_file_inode(handle_t *handle, struct jbd2_inode *inode);
  extern int	   jbd2_journal_begin_ordered_truncate(journal_t *journal,
  				struct jbd2_inode *inode, loff_t new_size);
--extern void	   jbd2_journal_init_jbd_inode(struct jbd2_inode *jinode, struct inode *inode);
-+extern void	   jbd2_journal_init_jbd2_inode(struct jbd2_inode *jinode, struct inode *inode);
- extern void	   jbd2_journal_release_jbd_inode(journal_t *journal, struct jbd2_inode *jinode);
- 
- /*
-@@ -1134,6 +1196,19 @@ static inline void jbd2_free_inode(struc
+@@ -1134,6 +1210,19 @@ static inline void jbd2_free_inode(struc
  	kmem_cache_free(jbd2_inode_cache, jinode);
  }
  
-+/* jbd data tag cache management. */
++/* jbd2 data tag cache management. */
 +extern struct kmem_cache *jbd_data_tag_cache;
 +
 +static inline struct jbd_data_tag *jbd2_alloc_data_tag(gfp_t gfp_flags)
@@ -1512,7 +1755,17 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  /* Primary revoke support */
  #define JOURNAL_REVOKE_DEFAULT_HASH 256
  extern int	   jbd2_journal_init_revoke(journal_t *, int);
-@@ -1193,6 +1268,8 @@ do {								           \
+@@ -1161,7 +1250,8 @@ extern void	jbd2_journal_switch_revoke_t
+ 
+ int __jbd2_log_space_left(journal_t *); /* Called with journal locked */
+ int jbd2_log_start_commit(journal_t *journal, tid_t tid);
+-int __jbd2_log_start_commit(journal_t *journal, tid_t tid);
++int jbd2_log_start_optfs_commit(journal_t *journal, tid_t tid, int dsync);
++int __jbd2_log_start_commit(journal_t *journal, tid_t tid, int dsync);
+ int jbd2_journal_start_commit(journal_t *journal, tid_t *tid);
+ int jbd2_journal_force_commit_nested(journal_t *journal);
+ int jbd2_log_wait_commit(journal_t *journal, tid_t tid);
+@@ -1193,6 +1283,8 @@ do {								           \
  
  static inline int is_journal_aborted(journal_t *journal)
  {
@@ -1521,7 +1774,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  	return journal->j_flags & JBD2_ABORT;
  }
  
-@@ -1238,7 +1315,7 @@ static inline int jbd_space_needed(journ
+@@ -1238,7 +1330,7 @@ static inline int jbd_space_needed(journ
  	if (journal->j_committing_transaction)
  		nblocks += atomic_read(&journal->j_committing_transaction->
  				       t_outstanding_credits);
@@ -1530,7 +1783,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  }
  
  /*
-@@ -1246,17 +1323,23 @@ static inline int jbd_space_needed(journ
+@@ -1246,17 +1338,23 @@ static inline int jbd_space_needed(journ
   */
  
  /* journaling buffer types */
@@ -1564,7 +1817,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd2.h optfs/fs
  #define buffer_trace_init(bh)	do {} while (0)
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd_common.h optfs/fs/ext4/jbd_common.h
 --- linux-3.2/fs/ext4/jbd_common.h	2013-10-30 19:25:36.045967977 -0500
-+++ optfs/fs/ext4/jbd_common.h	2013-10-30 19:41:33.713929173 -0500
++++ optfs/fs/ext4/jbd_common.h	2013-10-31 17:57:03.752841319 -0500
 @@ -25,6 +25,9 @@ BUFFER_FNS(RevokeValid, revokevalid)
  TAS_BUFFER_FNS(RevokeValid, revokevalid)
  BUFFER_FNS(Freed, freed)
@@ -1583,13 +1836,13 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/jbd_common.h op
  #endif
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs/fs/ext4/journal.c
 --- linux-3.2/fs/ext4/journal.c	2013-10-30 18:30:36.464358233 -0500
-+++ optfs/fs/ext4/journal.c	2013-10-30 19:41:33.718929246 -0500
++++ optfs/fs/ext4/journal.c	2013-10-31 17:57:03.759841438 -0500
 @@ -25,7 +25,7 @@
  #include <linux/module.h>
  #include <linux/time.h>
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/errno.h>
  #include <linux/slab.h>
  #include <linux/init.h>
@@ -1613,12 +1866,21 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  EXPORT_SYMBOL(jbd2_journal_release_buffer);
  EXPORT_SYMBOL(jbd2_journal_forget);
  #if 0
-@@ -91,15 +93,122 @@ EXPORT_SYMBOL(jbd2_journal_invalidatepag
+@@ -83,6 +85,7 @@ EXPORT_SYMBOL(jbd2_journal_ack_err);
+ EXPORT_SYMBOL(jbd2_journal_clear_err);
+ EXPORT_SYMBOL(jbd2_log_wait_commit);
+ EXPORT_SYMBOL(jbd2_log_start_commit);
++EXPORT_SYMBOL(jbd2_log_start_optfs_commit);
+ EXPORT_SYMBOL(jbd2_journal_start_commit);
+ EXPORT_SYMBOL(jbd2_journal_force_commit_nested);
+ EXPORT_SYMBOL(jbd2_journal_wipe);
+@@ -90,16 +93,126 @@ EXPORT_SYMBOL(jbd2_journal_blocks_per_pa
+ EXPORT_SYMBOL(jbd2_journal_invalidatepage);
  EXPORT_SYMBOL(jbd2_journal_try_to_free_buffers);
  EXPORT_SYMBOL(jbd2_journal_force_commit);
++EXPORT_SYMBOL(jbd2_journal_force_dsync_commit);
  EXPORT_SYMBOL(jbd2_journal_file_inode);
--EXPORT_SYMBOL(jbd2_journal_init_jbd_inode);
-+EXPORT_SYMBOL(jbd2_journal_init_jbd2_inode);
+ EXPORT_SYMBOL(jbd2_journal_init_jbd_inode);
  EXPORT_SYMBOL(jbd2_journal_release_jbd_inode);
  EXPORT_SYMBOL(jbd2_journal_begin_ordered_truncate);
  EXPORT_SYMBOL(jbd2_inode_cache);
@@ -1632,6 +1894,8 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  static int jbd2_journal_create_slab(size_t slab_size);
  
 +/* EXT4BF */
++#define OSYNC_COMMIT 0
++#define DSYNC_COMMIT 1
 +
 +struct timer_list ext4_writeout_timer;
 +const int EXT4BF_WRITEOUT_TIME = 10000;
@@ -1688,7 +1952,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
 +        struct buffer_head *bh = jh2bh(jh);
 +        if (!bh) break;
 +        jbd_lock_bh_state(bh);
-+        if (bh->b_blocktype == 1){
++        if (bh->b_blocktype == B_BLOCKTYPE_DATA){
 +            jbd_debug(6, "got block %lu in forget list\n", bh->b_blocknr);
 +            /* Process the data buffer. */
 +            get_bh(bh);
@@ -1737,16 +2001,15 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  /*
   * Helper function used to manage commit timeouts
   */
-@@ -226,7 +335,7 @@ static int jbd2_journal_start_thread(jou
- {
- 	struct task_struct *t;
+@@ -156,6 +269,7 @@ loop:
+ 		journal->j_commit_sequence, journal->j_commit_request);
  
--	t = kthread_run(kjournald2, journal, "jbd2/%s",
-+	t = kthread_run(kjournald2, journal, "jbd/%s",
- 			journal->j_devname);
- 	if (IS_ERR(t))
- 		return PTR_ERR(t);
-@@ -302,6 +411,9 @@ int jbd2_journal_write_metadata_buffer(t
+ 	if (journal->j_commit_sequence != journal->j_commit_request) {
++
+ 		jbd_debug(1, "OK, requests differ\n");
+ 		write_unlock(&journal->j_state_lock);
+ 		del_timer_sync(&journal->j_commit_timer);
+@@ -302,6 +416,9 @@ int jbd2_journal_write_metadata_buffer(t
  	struct buffer_head *bh_in = jh2bh(jh_in);
  	journal_t *journal = transaction->t_journal;
  
@@ -1756,7 +2019,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  	/*
  	 * The buffer really shouldn't be locked: only the current committing
  	 * transaction is allowed to write it, so nobody else is allowed
-@@ -427,17 +539,39 @@ repeat:
+@@ -427,17 +544,39 @@ repeat:
  	 * copying is moved to the transaction's shadow queue.
  	 */
  	JBUFFER_TRACE(jh_in, "file as BJ_Shadow");
@@ -1796,7 +2059,63 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  /*
   * Allocation code for the journal file.  Manage the space left in the
   * journal, so that we can begin checkpointing when appropriate.
-@@ -595,36 +729,7 @@ int jbd2_journal_start_commit(journal_t 
+@@ -476,7 +615,7 @@ int __jbd2_log_space_left(journal_t *jou
+  * Called with j_state_lock locked for writing.
+  * Returns true if a transaction commit was started.
+  */
+-int __jbd2_log_start_commit(journal_t *journal, tid_t target)
++int __jbd2_log_start_commit(journal_t *journal, tid_t target, int dsync)
+ {
+ 	/*
+ 	 * The only transaction we can possibly wait upon is the
+@@ -491,6 +630,12 @@ int __jbd2_log_start_commit(journal_t *j
+ 		 */
+ 
+ 		journal->j_commit_request = target;
++        journal->j_running_transaction->t_durable_commit = dsync;
++
++        jbd_debug(6, "Setting tx %lu to dsync type %d\n",
++                journal->j_running_transaction->t_tid,
++                journal->j_running_transaction->t_durable_commit);
++
+ 		jbd_debug(1, "JBD2: requesting commit %d/%d\n",
+ 			  journal->j_commit_request,
+ 			  journal->j_commit_sequence);
+@@ -508,12 +653,23 @@ int __jbd2_log_start_commit(journal_t *j
+ 	return 0;
+ }
+ 
++/* By default, fsync() behavior is equivalent to osync(). */
+ int jbd2_log_start_commit(journal_t *journal, tid_t tid)
+ {
+ 	int ret;
+ 
+ 	write_lock(&journal->j_state_lock);
+-	ret = __jbd2_log_start_commit(journal, tid);
++	ret = __jbd2_log_start_commit(journal, tid, OSYNC_COMMIT);
++	write_unlock(&journal->j_state_lock);
++	return ret;
++}
++
++int jbd2_log_start_optfs_commit(journal_t *journal, tid_t tid, int dsync)
++{
++	int ret;
++
++	write_lock(&journal->j_state_lock);
++	ret = __jbd2_log_start_commit(journal, tid, dsync);
+ 	write_unlock(&journal->j_state_lock);
+ 	return ret;
+ }
+@@ -568,7 +724,7 @@ int jbd2_journal_start_commit(journal_t 
+ 	if (journal->j_running_transaction) {
+ 		tid_t tid = journal->j_running_transaction->t_tid;
+ 
+-		__jbd2_log_start_commit(journal, tid);
++		__jbd2_log_start_commit(journal, tid, OSYNC_COMMIT);
+ 		/* There's a running transaction and we've just made sure
+ 		 * it's commit has been scheduled. */
+ 		if (ptid)
+@@ -595,36 +751,7 @@ int jbd2_journal_start_commit(journal_t 
   */
  int jbd2_trans_will_send_data_barrier(journal_t *journal, tid_t tid)
  {
@@ -1834,7 +2153,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  }
  EXPORT_SYMBOL(jbd2_trans_will_send_data_barrier);
  
-@@ -853,11 +958,11 @@ static const struct file_operations jbd2
+@@ -853,11 +980,11 @@ static const struct file_operations jbd2
  	.release        = jbd2_seq_info_release,
  };
  
@@ -1848,7 +2167,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  	if (journal->j_proc_entry) {
  		proc_create_data("info", S_IRUGO, journal->j_proc_entry,
  				 &jbd2_seq_info_fops, journal);
-@@ -867,7 +972,7 @@ static void jbd2_stats_proc_init(journal
+@@ -867,7 +994,7 @@ static void jbd2_stats_proc_init(journal
  static void jbd2_stats_proc_exit(journal_t *journal)
  {
  	remove_proc_entry("info", journal->j_proc_entry);
@@ -1857,7 +2176,25 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  }
  
  /*
-@@ -1808,6 +1913,7 @@ static void __journal_abort_soft (journa
+@@ -1624,7 +1751,7 @@ int jbd2_journal_flush(journal_t *journa
+ 	/* Force everything buffered to the log... */
+ 	if (journal->j_running_transaction) {
+ 		transaction = journal->j_running_transaction;
+-		__jbd2_log_start_commit(journal, transaction->t_tid);
++		__jbd2_log_start_commit(journal, transaction->t_tid, DSYNC_COMMIT);
+ 	} else if (journal->j_committing_transaction)
+ 		transaction = journal->j_committing_transaction;
+ 
+@@ -1740,7 +1867,7 @@ void __jbd2_journal_abort_hard(journal_t
+ 	journal->j_flags |= JBD2_ABORT;
+ 	transaction = journal->j_running_transaction;
+ 	if (transaction)
+-		__jbd2_log_start_commit(journal, transaction->t_tid);
++		__jbd2_log_start_commit(journal, transaction->t_tid, DSYNC_COMMIT);
+ 	write_unlock(&journal->j_state_lock);
+ }
+ 
+@@ -1808,6 +1935,7 @@ static void __journal_abort_soft (journa
  
  void jbd2_journal_abort(journal_t *journal, int errno)
  {
@@ -1865,7 +2202,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  	__journal_abort_soft(journal, errno);
  }
  
-@@ -1880,10 +1986,8 @@ int jbd2_journal_blocks_per_page(struct 
+@@ -1880,10 +2008,8 @@ int jbd2_journal_blocks_per_page(struct 
   */
  size_t journal_tag_bytes(journal_t *journal)
  {
@@ -1878,16 +2215,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  }
  
  /*
-@@ -1896,7 +2000,7 @@ size_t journal_tag_bytes(journal_t *jour
-  * with a 4k block file system.)  For blocks smaller than a page, we
-  * use a SLAB allocator.  There are slab caches for each block size,
-  * which are allocated at mount time, if necessary, and we only free
-- * (all of) the slab caches when/if the jbd2 module is unloaded.  For
-+ * (all of) the slab caches when/if the jbd module is unloaded.  For
-  * this reason we don't need to a mutex to protect access to
-  * jbd2_slab[] allocating or releasing memory; only in
-  * jbd2_journal_create_slab().
-@@ -1905,8 +2009,8 @@ size_t journal_tag_bytes(journal_t *jour
+@@ -1905,8 +2031,8 @@ size_t journal_tag_bytes(journal_t *jour
  static struct kmem_cache *jbd2_slab[JBD2_MAX_SLABS];
  
  static const char *jbd2_slab_names[JBD2_MAX_SLABS] = {
@@ -1898,7 +2226,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  };
  
  
-@@ -2118,6 +2222,8 @@ struct journal_head *jbd2_journal_add_jo
+@@ -2118,6 +2244,8 @@ struct journal_head *jbd2_journal_add_jo
  	struct journal_head *jh;
  	struct journal_head *new_jh = NULL;
  
@@ -1907,21 +2235,9 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  repeat:
  	if (!buffer_jbd(bh)) {
  		new_jh = journal_alloc_journal_head();
-@@ -2217,7 +2323,7 @@ void jbd2_journal_put_journal_head(struc
- /*
-  * Initialize jbd inode head
-  */
--void jbd2_journal_init_jbd_inode(struct jbd2_inode *jinode, struct inode *inode)
-+void jbd2_journal_init_jbd2_inode(struct jbd2_inode *jinode, struct inode *inode)
- {
- 	jinode->i_transaction = NULL;
- 	jinode->i_next_transaction = NULL;
-@@ -2264,25 +2370,25 @@ restart:
- u8 jbd2_journal_enable_debug __read_mostly;
- EXPORT_SYMBOL(jbd2_journal_enable_debug);
+@@ -2266,23 +2394,23 @@ EXPORT_SYMBOL(jbd2_journal_enable_debug)
  
--#define JBD2_DEBUG_NAME "jbd2-debug"
-+#define JBD2_DEBUG_NAME "jbd-debug"
+ #define JBD2_DEBUG_NAME "jbd2-debug"
  
 -static struct dentry *jbd2_debugfs_dir;
 -static struct dentry *jbd2_debug;
@@ -1933,7 +2249,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
 -	jbd2_debugfs_dir = debugfs_create_dir("jbd2", NULL);
 -	if (jbd2_debugfs_dir)
 -		jbd2_debug = debugfs_create_u8(JBD2_DEBUG_NAME,
-+	jbd_debugfs_dir = debugfs_create_dir("jbd", NULL);
++	jbd_debugfs_dir = debugfs_create_dir("jbd2", NULL);
 +	if (jbd_debugfs_dir)
 +		jbd_debug = debugfs_create_u8(JBD2_DEBUG_NAME,
  					       S_IRUGO | S_IWUSR,
@@ -1951,7 +2267,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  }
  
  #else
-@@ -2303,12 +2409,12 @@ static void __exit jbd2_remove_debugfs_e
+@@ -2303,12 +2431,12 @@ static void __exit jbd2_remove_debugfs_e
  
  static void __init jbd2_create_jbd_stats_proc_entry(void)
  {
@@ -1966,7 +2282,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  		remove_proc_entry(JBD2_STATS_PROC_NAME, NULL);
  }
  
-@@ -2320,6 +2426,7 @@ static void __exit jbd2_remove_jbd_stats
+@@ -2320,6 +2448,7 @@ static void __exit jbd2_remove_jbd_stats
  #endif
  
  struct kmem_cache *jbd2_handle_cache, *jbd2_inode_cache;
@@ -1974,7 +2290,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  
  static int __init journal_init_handle_cache(void)
  {
-@@ -2334,6 +2441,12 @@ static int __init journal_init_handle_ca
+@@ -2334,6 +2463,12 @@ static int __init journal_init_handle_ca
  		kmem_cache_destroy(jbd2_handle_cache);
  		return -ENOMEM;
  	}
@@ -1987,7 +2303,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  	return 0;
  }
  
-@@ -2343,7 +2456,8 @@ static void jbd2_journal_destroy_handle_
+@@ -2343,7 +2478,8 @@ static void jbd2_journal_destroy_handle_
  		kmem_cache_destroy(jbd2_handle_cache);
  	if (jbd2_inode_cache)
  		kmem_cache_destroy(jbd2_inode_cache);
@@ -1998,115 +2314,16 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal.c optfs
  
  /*
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/journal-head.h optfs/fs/ext4/journal-head.h
---- linux-3.2/fs/ext4/journal-head.h	1969-12-31 18:00:00.000000000 -0600
-+++ optfs/fs/ext4/journal-head.h	2013-10-30 19:41:33.713929173 -0500
-@@ -0,0 +1,106 @@
-+/*
-+ * include/linux/journal-bf-head.h
-+ *
-+ * buffer_head fields for JBD
-+ *
-+ * 27 May 2001 Andrew Morton
-+ *	Created - pulled out of fs.h
-+ */
-+
-+#ifndef JOURNAL_HEAD_H_INCLUDED
-+#define JOURNAL_HEAD_H_INCLUDED
-+
-+typedef unsigned int		tid_t;		/* Unique transaction ID */
-+typedef struct transaction_bf_s	transaction_t;	/* Compound transaction type */
-+
-+struct buffer_head;
-+
-+struct journal_head {
-+	/*
-+	 * Points back to our buffer_head. [jbd_lock_bh_journal_head()]
-+	 */
-+	struct buffer_head *b_bh;
-+
-+	/*
-+	 * Reference count - see description in journal.c
-+	 * [jbd_lock_bh_journal_head()]
-+	 */
-+	int b_jcount;
-+
-+	/*
-+	 * Journalling list for this buffer [jbd_lock_bh_state()]
-+	 */
-+	unsigned b_jlist;
-+
-+	/*
-+	 * This flag signals the buffer has been modified by
-+	 * the currently running transaction
-+	 * [jbd_lock_bh_state()]
-+	 */
-+	unsigned b_modified;
-+
-+	/*
-+	 * This feild tracks the last transaction id in which this buffer
-+	 * has been cowed
-+	 * [jbd_lock_bh_state()]
-+	 */
-+	tid_t b_cow_tid;
-+
-+	/*
-+	 * Copy of the buffer data frozen for writing to the log.
-+	 * [jbd_lock_bh_state()]
-+	 */
-+	char *b_frozen_data;
-+
-+	/*
-+	 * Pointer to a saved copy of the buffer containing no uncommitted
-+	 * deallocation references, so that allocations can avoid overwriting
-+	 * uncommitted deletes. [jbd_lock_bh_state()]
-+	 */
-+	char *b_committed_data;
-+
-+	/*
-+	 * Pointer to the compound transaction which owns this buffer's
-+	 * metadata: either the running transaction or the committing
-+	 * transaction (if there is one).  Only applies to buffers on a
-+	 * transaction's data or metadata journaling list.
-+	 * [j_list_lock] [jbd_lock_bh_state()]
-+	 */
-+	transaction_t *b_transaction;
-+
-+	/*
-+	 * Pointer to the running compound transaction which is currently
-+	 * modifying the buffer's metadata, if there was already a transaction
-+	 * committing it when the new transaction touched it.
-+	 * [t_list_lock] [jbd_lock_bh_state()]
-+	 */
-+	transaction_t *b_next_transaction;
-+
-+	/*
-+	 * Doubly-linked list of buffers on a transaction's data, metadata or
-+	 * forget queue. [t_list_lock] [jbd_lock_bh_state()]
-+	 */
-+	struct journal_head *b_tnext, *b_tprev;
-+
-+	/*
-+	 * Pointer to the compound transaction against which this buffer
-+	 * is checkpointed.  Only dirty buffers can be checkpointed.
-+	 * [j_list_lock]
-+	 */
-+	transaction_t *b_cp_transaction;
-+
-+	/*
-+	 * Doubly-linked list of buffers still remaining to be flushed
-+	 * before an old transaction can be checkpointed.
-+	 * [j_list_lock]
-+	 */
-+	struct journal_head *b_cpnext, *b_cpprev;
-+
-+	/* Trigger type */
-+	struct jbd2_buffer_trigger_type *b_triggers;
-+
-+	/* Trigger type for the committing transaction's frozen data */
-+	struct jbd2_buffer_trigger_type *b_frozen_triggers;
-+};
-+
-+#endif		/* JOURNAL_HEAD_H_INCLUDED */
+--- linux-3.2/fs/ext4/journal-head.h	2013-10-31 17:28:07.810080498 -0500
++++ optfs/fs/ext4/journal-head.h	2013-10-31 17:57:03.752841319 -0500
+@@ -13,7 +13,6 @@
+ typedef unsigned int		tid_t;		/* Unique transaction ID */
+ typedef struct transaction_s	transaction_t;	/* Compound transaction type */
+ 
+-
+ struct buffer_head;
+ 
+ struct journal_head {
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/Kconfig optfs/fs/ext4/Kconfig
 --- linux-3.2/fs/ext4/Kconfig	2012-01-04 17:55:44.000000000 -0600
 +++ optfs/fs/ext4/Kconfig	1969-12-31 18:00:00.000000000 -0600
@@ -2196,23 +2413,9 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/Kconfig optfs/f
 -
 -	  If you select Y here, then you will be able to turn on debugging
 -	  with a command such as "echo 1 > /sys/kernel/debug/ext4/mballoc-debug"
-diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/load.sh optfs/fs/ext4/load.sh
---- linux-3.2/fs/ext4/load.sh	1969-12-31 18:00:00.000000000 -0600
-+++ optfs/fs/ext4/load.sh	2013-10-30 19:41:33.718929246 -0500
-@@ -0,0 +1,10 @@
-+umount /mnt/mydisk
-+modprobe -r ext4
-+make
-+make modules_install
-+echo "Loading module"
-+modprobe ext4
-+echo "Mounting fs"
-+mount -t ext4 -o nodelalloc,nobarrier,nouser_xattr,noacl,data=journal  /dev/sdb1 /mnt/mydisk
-+echo "Fs contents"
-+ls /mnt/mydisk/
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/Makefile optfs/fs/ext4/Makefile
 --- linux-3.2/fs/ext4/Makefile	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/Makefile	2013-10-30 19:41:33.655928324 -0500
++++ optfs/fs/ext4/Makefile	2013-10-31 17:57:03.692840316 -0500
 @@ -1,14 +1,24 @@
  #
 -# Makefile for the linux ext4-filesystem routines.
@@ -2220,7 +2423,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/Makefile optfs/
  #
  
 -obj-$(CONFIG_EXT4_FS) += ext4.o
-+obj-m += jbd.o ext4.o
++obj-m += jbd2.o ext4.o
  
 -ext4-y	:= balloc.o bitmap.o dir.o file.o fsync.o ialloc.o inode.o page-io.o \
 -		ioctl.o namei.o super.o symlink.o hash.o resize.o extents.o \
@@ -2230,7 +2433,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/Makefile optfs/
 -ext4-$(CONFIG_EXT4_FS_XATTR)		+= xattr.o xattr_user.o xattr_trusted.o
 -ext4-$(CONFIG_EXT4_FS_POSIX_ACL)	+= acl.o
 -ext4-$(CONFIG_EXT4_FS_SECURITY)		+= xattr_security.o
-+jbd-objs := transaction.o commit.o recovery.o checkpoint.o revoke.o journal.o 
++jbd2-objs := transaction.o commit.o recovery.o checkpoint.o revoke.o journal.o 
 +
 +ext4-objs     := balloc.o bitmap.o dir.o file.o fsync.o ialloc.o inode.o page-io.o \
 +                ioctl.o namei.o super.o symlink.o hash.o resize.o extents.o \
@@ -2250,7 +2453,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/Makefile optfs/
 +	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/mballoc.c optfs/fs/ext4/mballoc.c
 --- linux-3.2/fs/ext4/mballoc.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/mballoc.c	2013-10-30 19:41:33.732929449 -0500
++++ optfs/fs/ext4/mballoc.c	2013-10-31 17:57:03.773841671 -0500
 @@ -24,7 +24,10 @@
  #include "mballoc.h"
  #include <linux/debugfs.h>
@@ -2331,7 +2534,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/mballoc.c optfs
  		return -ENOMEM;
  	}
  
-@@ -2629,12 +2631,106 @@ static inline int ext4_issue_discard(str
+@@ -2629,10 +2631,104 @@ static inline int ext4_issue_discard(str
  			 ext4_group_first_block_no(sb, block_group));
  	count = EXT4_C2B(EXT4_SB(sb), count);
  	trace_ext4_discard_blocks(sb,
@@ -2435,11 +2638,8 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/mballoc.c optfs
 +}
 +
  /*
-- * This function is called by the jbd2 layer once the commit has finished,
-+ * This function is called by the jbd layer once the commit has finished,
+  * This function is called by the jbd2 layer once the commit has finished,
   * so we know we can free the blocks that were released with that commit.
-  */
- static void release_blocks_on_commit(journal_t *journal, transaction_t *txn)
 @@ -2649,6 +2745,16 @@ static void release_blocks_on_commit(jou
  	list_for_each_safe(l, ltmp, &txn->t_private_list) {
  		entry = list_entry(l, struct ext4_free_data, list);
@@ -2588,7 +2788,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/mballoc.c optfs
  	ext4_free_group_clusters_set(sb, gdp, ret);
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/mballoc.h optfs/fs/ext4/mballoc.h
 --- linux-3.2/fs/ext4/mballoc.h	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/mballoc.h	2013-10-30 19:41:33.733929463 -0500
++++ optfs/fs/ext4/mballoc.h	2013-10-31 17:57:03.773841672 -0500
 @@ -36,12 +36,13 @@
  
  /*
@@ -2629,22 +2829,15 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/mballoc.h optfs
  
  static inline ext4_fsblk_t ext4_grp_offs_to_block(struct super_block *sb,
  					struct ext4_free_extent *fex)
-diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/mk-big.sh optfs/fs/ext4/mk-big.sh
---- linux-3.2/fs/ext4/mk-big.sh	1969-12-31 18:00:00.000000000 -0600
-+++ optfs/fs/ext4/mk-big.sh	2013-10-30 19:41:33.735929492 -0500
-@@ -0,0 +1,3 @@
-+umount /mnt/mydisk
-+mkfs.ext4 -j -J size=16384 -E lazy_itable_init=0,lazy_journal_init=0 /dev/sdb1
-+
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/namei.c optfs/fs/ext4/namei.c
 --- linux-3.2/fs/ext4/namei.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/namei.c	2013-10-30 19:41:33.746929654 -0500
++++ optfs/fs/ext4/namei.c	2013-10-31 17:57:03.786841889 -0500
 @@ -26,7 +26,7 @@
  
  #include <linux/fs.h>
  #include <linux/pagemap.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/time.h>
  #include <linux/fcntl.h>
  #include <linux/stat.h>
@@ -2661,25 +2854,25 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/namei.c optfs/f
   */
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/page-io.c optfs/fs/ext4/page-io.c
 --- linux-3.2/fs/ext4/page-io.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/page-io.c	2013-10-30 19:41:33.747929669 -0500
++++ optfs/fs/ext4/page-io.c	2013-10-31 17:57:03.787841905 -0500
 @@ -9,7 +9,7 @@
  #include <linux/module.h>
  #include <linux/fs.h>
  #include <linux/time.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/highuid.h>
  #include <linux/pagemap.h>
  #include <linux/quotaops.h>
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/recovery.c optfs/fs/ext4/recovery.c
 --- linux-3.2/fs/ext4/recovery.c	2013-10-30 18:30:36.464358233 -0500
-+++ optfs/fs/ext4/recovery.c	2013-10-30 19:41:33.749929697 -0500
++++ optfs/fs/ext4/recovery.c	2013-10-31 17:57:03.790841954 -0500
 @@ -18,7 +18,7 @@
  #else
  #include <linux/time.h>
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/errno.h>
  #include <linux/crc32.h>
  #endif
@@ -2798,7 +2991,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/recovery.c optf
 -
 -		nr++;
 +        
-+		if(read_tag_type(tag_bytes, tag) != 2)
++		if(read_tag_type(tag_bytes, tag) != T_BLOCKTYPE_NEWLYAPPENDEDDATA)
 +			nr++;
  		tagp += tag_bytes;
  		if (!(tag->t_flags & cpu_to_be32(JBD2_FLAG_SAME_UUID)))
@@ -2890,7 +3083,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/recovery.c optf
 +        jbd_debug(6, "EXT4BF: reading tag block %llu, checksum %llu type %llu\n",
 +                blocknr, data_checksum, read_tag_type(tag_bytes, tag)); 
 +
-+        if (blocktype == 2) {
++        if (blocktype == T_BLOCKTYPE_NEWLYAPPENDEDDATA) {
 +			jbd_debug(6, "EXT4BF: trying to read and verify the block checksum");
 +            err = dread(&obh, journal, blocknr);
 +            if (err) {
@@ -2914,7 +3107,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/recovery.c optf
 +                    chksum_err = 1;
 +                }
 +            }
-+        } else if (blocktype == 3) {
++        } else if (blocktype == T_BLOCKTYPE_OVERWRITTENDATA) {
 +        	jbd_debug(6, "EXT4BF: Found overwritten data block %d, removing it from wrong-checksums list\n");
 +        	delete_from_mismatched_blocks(dc_object, blocknr);
 +        }
@@ -3029,7 +3222,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/recovery.c optf
  				tag = (journal_block_tag_t *) tagp;
  				flags = be32_to_cpu(tag->t_flags);
  
-+				if(read_tag_type(tag_bytes, tag) == 2)
++				if(read_tag_type(tag_bytes, tag) == T_BLOCKTYPE_NEWLYAPPENDEDDATA)
 +					goto skip_write;
 +
 +
@@ -3122,7 +3315,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/recovery.c optf
  
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/resize.c optfs/fs/ext4/resize.c
 --- linux-3.2/fs/ext4/resize.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/resize.c	2013-10-30 19:41:33.752929741 -0500
++++ optfs/fs/ext4/resize.c	2013-10-31 17:57:03.793842005 -0500
 @@ -69,7 +69,7 @@ static int verify_group_input(struct sup
  		input->blocks_count - 2 - overhead - sbi->s_itb_per_group;
  
@@ -3169,25 +3362,25 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/resize.c optfs/
  		       sizeof(struct ext4_super_block));
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/revoke.c optfs/fs/ext4/revoke.c
 --- linux-3.2/fs/ext4/revoke.c	2013-10-30 18:30:36.464358233 -0500
-+++ optfs/fs/ext4/revoke.c	2013-10-30 19:41:33.754929771 -0500
++++ optfs/fs/ext4/revoke.c	2013-10-31 17:57:03.795842039 -0500
 @@ -81,7 +81,7 @@
  #else
  #include <linux/time.h>
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/errno.h>
  #include <linux/slab.h>
  #include <linux/list.h>
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/super.c optfs/fs/ext4/super.c
 --- linux-3.2/fs/ext4/super.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/super.c	2013-10-30 19:41:33.767929959 -0500
++++ optfs/fs/ext4/super.c	2013-10-31 17:57:03.808842257 -0500
 @@ -21,7 +21,7 @@
  #include <linux/fs.h>
  #include <linux/time.h>
  #include <linux/vmalloc.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/slab.h>
  #include <linux/init.h>
  #include <linux/blkdev.h>
@@ -3345,15 +3538,6 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/super.c optfs/f
  
  	if (sbi->s_inode_readahead_blks != EXT4_DEF_INODE_READAHEAD_BLKS)
  		seq_printf(seq, ",inode_readahead_blks=%u",
-@@ -1212,7 +1251,7 @@ static struct dentry *ext4_fh_to_parent(
-  * Try to release metadata pages (indirect blocks, directories) which are
-  * mapped via the block device.  Since these pages could have journal heads
-  * which would prevent try_to_free_buffers() from freeing them, we must use
-- * jbd2 layer's try_to_free_buffers() function to release them.
-+ * jbd layer's try_to_free_buffers() function to release them.
-  */
- static int bdev_try_to_free_page(struct super_block *sb, struct page *page,
- 				 gfp_t wait)
 @@ -1324,6 +1363,7 @@ enum {
  	Opt_journal_update, Opt_journal_dev,
  	Opt_journal_checksum, Opt_journal_async_commit,
@@ -3520,7 +3704,35 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/super.c optfs/f
  	kfree(orig_data);
  	return 0;
  
-@@ -4951,7 +5032,7 @@ static inline void register_as_ext2(void
+@@ -4288,6 +4369,27 @@ int ext4_force_commit(struct super_block
+ 	return ret;
+ }
+ 
++/*
++ * dsync: force the running and committing transactions to commit,
++ * and wait on the commit.
++ */
++int ext4_force_dsync_commit(struct super_block *sb)
++{
++	journal_t *journal;
++	int ret = 0;
++
++	if (sb->s_flags & MS_RDONLY)
++		return 0;
++
++	journal = EXT4_SB(sb)->s_journal;
++	if (journal) {
++		vfs_check_frozen(sb, SB_FREEZE_TRANS);
++		ret = ext4_journal_force_dsync_commit(journal);
++	}
++
++	return ret;
++}
++
+ static void ext4_write_super(struct super_block *sb)
+ {
+ 	lock_super(sb);
+@@ -4951,7 +5053,7 @@ static inline void register_as_ext2(void
  	int err = register_filesystem(&ext2_fs_type);
  	if (err)
  		printk(KERN_WARNING
@@ -3529,7 +3741,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/super.c optfs/f
  }
  
  static inline void unregister_as_ext2(void)
-@@ -4982,7 +5063,7 @@ static inline void register_as_ext3(void
+@@ -4982,7 +5084,7 @@ static inline void register_as_ext3(void
  	int err = register_filesystem(&ext3_fs_type);
  	if (err)
  		printk(KERN_WARNING
@@ -3540,25 +3752,25 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/super.c optfs/f
  static inline void unregister_as_ext3(void)
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/symlink.c optfs/fs/ext4/symlink.c
 --- linux-3.2/fs/ext4/symlink.c	2012-01-04 17:55:44.000000000 -0600
-+++ optfs/fs/ext4/symlink.c	2013-10-30 19:41:33.767929959 -0500
++++ optfs/fs/ext4/symlink.c	2013-10-31 17:57:03.808842257 -0500
 @@ -18,7 +18,7 @@
   */
  
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/namei.h>
  #include "ext4.h"
  #include "xattr.h"
 diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c optfs/fs/ext4/transaction.c
 --- linux-3.2/fs/ext4/transaction.c	2013-10-30 18:30:36.464358233 -0500
-+++ optfs/fs/ext4/transaction.c	2013-10-30 19:41:33.773930047 -0500
++++ optfs/fs/ext4/transaction.c	2013-10-31 17:57:03.815842371 -0500
 @@ -19,7 +19,7 @@
  
  #include <linux/time.h>
  #include <linux/fs.h>
 -#include <linux/jbd2.h>
-+#include "jbd.h"
++#include "jbd2.h"
  #include <linux/errno.h>
  #include <linux/slab.h>
  #include <linux/timer.h>
@@ -3588,7 +3800,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
  {
  	transaction->t_journal = journal;
  	transaction->t_state = T_RUNNING;
-@@ -57,11 +60,14 @@ jbd2_get_transaction(journal_t *journal,
+@@ -57,11 +60,15 @@ jbd2_get_transaction(journal_t *journal,
  	transaction->t_tid = journal->j_transaction_sequence++;
  	transaction->t_expires = jiffies + journal->j_commit_interval;
  	spin_lock_init(&transaction->t_handle_lock);
@@ -3600,10 +3812,11 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
  	INIT_LIST_HEAD(&transaction->t_private_list);
 +	INIT_LIST_HEAD(&transaction->t_data_tag_list);
 +	transaction->t_num_dirty_blocks = 0;
++	transaction->t_durable_commit = 0;
  
  	/* Set up the commit timer for the new transaction. */
  	journal->j_commit_timer.expires = round_jiffies_up(transaction->t_expires);
-@@ -90,7 +96,7 @@ jbd2_get_transaction(journal_t *journal,
+@@ -90,7 +97,7 @@ jbd2_get_transaction(journal_t *journal,
   * lock.  But doing so will mean that start_this_handle() can not be
   * run in parallel on SMP systems, which limits our scalability.  So
   * unless debugging is enabled, we no longer update t_max_wait, which
@@ -3612,7 +3825,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
   * tracepoint will always be zero.
   */
  static inline void update_t_max_wait(transaction_t *transaction,
-@@ -180,7 +186,7 @@ repeat:
+@@ -180,7 +187,7 @@ repeat:
  			goto alloc_transaction;
  		write_lock(&journal->j_state_lock);
  		if (!journal->j_running_transaction) {
@@ -3621,7 +3834,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
  			new_transaction = NULL;
  		}
  		write_unlock(&journal->j_state_lock);
-@@ -261,6 +267,7 @@ repeat:
+@@ -261,6 +268,7 @@ repeat:
  	 */
  	if (__jbd2_log_space_left(journal) < jbd_space_needed(journal)) {
  		jbd_debug(2, "Handle %p waiting for checkpoint...\n", handle);
@@ -3629,7 +3842,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
  		atomic_sub(nblocks, &transaction->t_outstanding_credits);
  		read_unlock(&journal->j_state_lock);
  		write_lock(&journal->j_state_lock);
-@@ -603,6 +610,9 @@ do_get_write_access(handle_t *handle, st
+@@ -603,6 +611,9 @@ do_get_write_access(handle_t *handle, st
  repeat:
  	bh = jh2bh(jh);
  
@@ -3639,7 +3852,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
  	/* @@@ Need to check for errors here at some point. */
  
  	lock_buffer(bh);
-@@ -703,6 +713,7 @@ repeat:
+@@ -703,6 +714,7 @@ repeat:
  
  			wqh = bit_waitqueue(&bh->b_state, BH_Unshadow);
  
@@ -3647,7 +3860,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
  			JBUFFER_TRACE(jh, "on shadow: sleep");
  			jbd_unlock_bh_state(bh);
  			/* commit wakes up all shadow buffers after IO */
-@@ -764,6 +775,8 @@ repeat:
+@@ -764,6 +776,8 @@ repeat:
  	 * commits the new data
  	 */
  	if (!jh->b_transaction) {
@@ -3656,7 +3869,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
  		JBUFFER_TRACE(jh, "no transaction");
  		J_ASSERT_JH(jh, !jh->b_next_transaction);
  		JBUFFER_TRACE(jh, "file as BJ_Reserved");
-@@ -1176,6 +1189,133 @@ out:
+@@ -1176,6 +1190,133 @@ out:
  	return ret;
  }
  
@@ -3702,7 +3915,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
 +        struct buffer_head *bh = jh2bh(jh);
 +        if (!bh) break;
 +        jbd_lock_bh_state(bh);
-+        if (bh->b_blocktype == 1){
++        if (bh->b_blocktype == B_BLOCKTYPE_DATA){
 +            jbd_debug(6, "got block %lu in forget list\n", bh->b_blocknr);
 +            /* Process the data buffer. */
 +            get_bh(bh);
@@ -3790,7 +4003,76 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
  /*
   * jbd2_journal_release_buffer: undo a get_write_access without any buffer
   * updates, if the update decided in the end that it didn't need access.
-@@ -1588,6 +1728,8 @@ void __jbd2_journal_temp_unlink_buffer(s
+@@ -1431,14 +1572,23 @@ int jbd2_journal_stop(handle_t *handle)
+ 
+ 		jbd_debug(2, "transaction too old, requesting commit for "
+ 					"handle %p\n", handle);
+-		/* This is non-blocking */
+-		jbd2_log_start_commit(journal, transaction->t_tid);
++
++        /* Handle commit differently if the handle has durable
++         * commit (dsync) enabled. */
++        if (handle->h_durable_commit) 
++            jbd2_log_start_optfs_commit(journal,
++                    transaction->t_tid, DSYNC_COMMIT);
++        else {
++            /* This is non-blocking */
++            jbd2_log_start_commit(journal, transaction->t_tid);
++        }
+ 
+ 		/*
+ 		 * Special case: JBD2_SYNC synchronous updates require us
+ 		 * to wait for the commit to complete.
+ 		 */
+-		if (handle->h_sync && !(current->flags & PF_MEMALLOC))
++		if ((handle->h_sync && !(current->flags & PF_MEMALLOC))
++		    || handle->h_durable_commit)
+ 			wait_for_commit = 1;
+ 	}
+ 
+@@ -1455,8 +1605,9 @@ int jbd2_journal_stop(handle_t *handle)
+ 			wake_up(&journal->j_wait_transaction_locked);
+ 	}
+ 
+-	if (wait_for_commit)
++	if (wait_for_commit) {
+ 		err = jbd2_log_wait_commit(journal, tid);
++	}
+ 
+ 	lock_map_release(&handle->h_lockdep_map);
+ 
+@@ -1487,6 +1638,30 @@ int jbd2_journal_force_commit(journal_t 
+ 	return ret;
+ }
+ 
++/**
++ * int jbd2_journal_force_dsync_commit() - force any uncommitted transactions
++ * @journal: journal to force
++ *
++ * For synchronous operations: force any uncommitted transactions
++ * to disk.  May seem kludgy, but it reuses all the handle batching
++ * code in a very simple manner.
++ */
++int jbd2_journal_force_dsync_commit(journal_t *journal)
++{
++	handle_t *handle;
++	int ret;
++
++	handle = jbd2_journal_start(journal, 1);
++	if (IS_ERR(handle)) {
++		ret = PTR_ERR(handle);
++	} else {
++		handle->h_sync = 1;
++		handle->h_durable_commit = 1;
++		ret = jbd2_journal_stop(handle);
++	}
++	return ret;
++}
++
+ /*
+  *
+  * List management code snippets: various functions for manipulating the
+@@ -1588,6 +1763,8 @@ void __jbd2_journal_temp_unlink_buffer(s
  	case BJ_Reserved:
  		list = &transaction->t_reserved_list;
  		break;
@@ -3799,7 +4081,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
  	}
  
  	__blist_del_buffer(list, jh);
-@@ -2010,6 +2152,12 @@ void __jbd2_journal_file_buffer(struct j
+@@ -2010,6 +2187,12 @@ void __jbd2_journal_file_buffer(struct j
  	int was_dirty = 0;
  	struct buffer_head *bh = jh2bh(jh);
  
@@ -3812,7 +4094,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
  	J_ASSERT_JH(jh, jbd_is_locked_bh_state(bh));
  	assert_spin_locked(&transaction->t_journal->j_list_lock);
  
-@@ -2066,6 +2214,9 @@ void __jbd2_journal_file_buffer(struct j
+@@ -2066,6 +2249,9 @@ void __jbd2_journal_file_buffer(struct j
  	case BJ_Reserved:
  		list = &transaction->t_reserved_list;
  		break;
@@ -3822,7 +4104,7 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
  	}
  
  	__blist_add_buffer(list, jh);
-@@ -2146,7 +2297,9 @@ void __jbd2_journal_refile_buffer(struct
+@@ -2146,7 +2332,9 @@ void __jbd2_journal_refile_buffer(struct
   */
  void jbd2_journal_refile_buffer(journal_t *journal, struct journal_head *jh)
  {
@@ -3832,3 +4114,150 @@ diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/ext4/transaction.c o
  
  	/* Get reference so that buffer cannot be freed before we unlock it */
  	get_bh(bh);
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/fs/sync.c optfs/fs/sync.c
+--- linux-3.2/fs/sync.c	2012-01-04 17:55:44.000000000 -0600
++++ optfs/fs/sync.c	2013-10-24 15:19:04.000000000 -0500
+@@ -198,6 +198,38 @@ static int do_fsync(unsigned int fd, int
+ 	return ret;
+ }
+ 
++static int do_dsync(unsigned int fd)
++{
++	struct file *file;
++	int ret = -EBADF;
++
++	file = fget(fd);
++    if (file) {
++        if (!file->f_op || !file->f_op->dsync)
++            ret =  -EINVAL;
++        else 
++            ret = file->f_op->dsync(file, 0, LLONG_MAX);
++		fput(file);
++	}
++	return ret;
++}
++
++static int do_osync(unsigned int fd)
++{
++	struct file *file;
++	int ret = -EBADF;
++
++	file = fget(fd);
++    if (file) {
++        if (!file->f_op || !file->f_op->osync)
++            ret =  -EINVAL;
++        else 
++            ret = file->f_op->osync(file, 0, LLONG_MAX);
++		fput(file);
++	}
++	return ret;
++}
++
+ SYSCALL_DEFINE1(fsync, unsigned int, fd)
+ {
+ 	return do_fsync(fd, 0);
+@@ -208,6 +240,17 @@ SYSCALL_DEFINE1(fdatasync, unsigned int,
+ 	return do_fsync(fd, 1);
+ }
+ 
++/* vijayc: Adding the calls for osync() and dsync(). */
++SYSCALL_DEFINE1(osync, unsigned int, fd)
++{
++	return do_osync(fd);
++}
++
++SYSCALL_DEFINE1(dsync, unsigned int, fd)
++{
++	return do_dsync(fd);
++}
++
+ /**
+  * generic_write_sync - perform syncing after a write if file / inode is sync
+  * @file:	file to which the write happened
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/include/asm-generic/unistd.h optfs/include/asm-generic/unistd.h
+--- linux-3.2/include/asm-generic/unistd.h	2012-01-04 17:55:44.000000000 -0600
++++ optfs/include/asm-generic/unistd.h	2013-10-24 15:19:04.000000000 -0500
+@@ -692,8 +692,14 @@ __SC_COMP(__NR_process_vm_readv, sys_pro
+ __SC_COMP(__NR_process_vm_writev, sys_process_vm_writev, \
+           compat_sys_process_vm_writev)
+ 
++/* vijayc: Adding in the osync() and dsync() calls for OptFS. */
++#define __NR_osync 272
++__SYSCALL(__NR_osync, sys_osync)
++#define __NR_dsync 273
++__SYSCALL(__NR_dsync, sys_dsync)
++
+ #undef __NR_syscalls
+-#define __NR_syscalls 272
++#define __NR_syscalls 274
+ 
+ /*
+  * All syscalls below here should go away really,
+diff -uprN -X linux-3.2/Documentation/dontdiff linux-3.2/optfs_examples/test.c optfs/optfs_examples/test.c
+--- linux-3.2/optfs_examples/test.c	1969-12-31 18:00:00.000000000 -0600
++++ optfs/optfs_examples/test.c	2013-10-24 15:19:04.000000000 -0500
+@@ -0,0 +1,64 @@
++#include <fcntl.h>
++#include <stdio.h>
++#include <sys/syscall.h>
++#include <sys/time.h>
++#include <unistd.h>
++
++/* Wrappers for osync and dsync. */
++int osync(int fd) 
++{
++    return syscall(__NR_osync, fd);
++}
++
++int dsync(int fd) 
++{
++    return syscall(__NR_dsync, fd);
++}
++
++/* Elapsed time in milliseconds. */
++double elapsed_ms(struct timeval* start,
++        struct timeval* end) {
++    unsigned long sec = end->tv_sec - start->tv_sec;
++    unsigned long usec = end->tv_usec - start->tv_usec;
++
++    return sec * 1000.0 + usec / 1000.0;
++}
++
++#define NUM_RUNS 20
++
++int main() 
++{
++    int fd; 
++    struct timeval st, et;
++    double total_osync_time = 0;
++    double total_dsync_time = 0;
++    int i;
++
++    /* Open file. */
++    fd = open ("/mnt/mydisk/testing2", O_CREAT | O_RDWR);
++
++    /* Measure osync() latency. */
++    for (i = 0; i < NUM_RUNS; i++) {
++        gettimeofday(&st, NULL);
++        write(fd, "hello\n", 6);
++        osync(fd);
++        gettimeofday(&et, NULL);
++        total_osync_time += elapsed_ms(&st, &et);
++    }
++
++    printf("osync() latency in ms: %f\n", total_osync_time/NUM_RUNS);
++
++    /* Measure dsync() latency. */
++    for (i = 0; i < NUM_RUNS; i++) {
++        gettimeofday(&st, NULL);
++        write(fd, "hello again\n", 12);
++        dsync(fd);
++        gettimeofday(&et, NULL);
++        total_dsync_time += elapsed_ms(&st, &et);
++    }
++
++    printf("dsync() latency in ms: %f\n", total_dsync_time/NUM_RUNS);
++
++    close(fd);
++    return 0;
++}
