@@ -84,15 +84,17 @@ guarantee consistency in the case of a crash.
 
 #### Caveats 
 
-This version of the code provides only *eventual durability*: every OptFS
-(ext4bf) fsync() call behaves likes an osync(). Therefore, any unmodified
+This version of the code provides only *eventual durability* by default: every
+OptFS (ext4bf) fsync() call behaves likes an osync(). Therefore, any unmodified
 application running on ext4bf behaves as if every fsync() was replaced by an
 osync(). This allows you to take any application and run it on OptFS to
 determine the maximum performance you could potentially get. 
+
+For applications requiring durability, please use the dsync() call. The code
+can be modified fairly easily so that the default behavior is dsync() instead
+of osync().
 
 Note that the code is provided "as is": compiling and running the code will
 require some tweaking based on the operating system environment. The file
 system is only meant as a prototype and not meant for production use in any
 way.
-
-
