@@ -50,9 +50,9 @@
  */
 #define JBD2_DEFAULT_MAX_COMMIT_AGE 5
 
-//#define jbd_debug(f, a...)	/**/
+#define jbd_debug(f, a...)	/**/
 
-
+/*
 #define jbd_debug(n, f, a...)						\
 	do {								\
 		if ((n) <= 10) {			\
@@ -61,6 +61,7 @@
 			printk (f, ## a);				\
 		}							\
 	} while (0)
+*/
 
 
 #define CONFIG_JBD2_DEBUG
