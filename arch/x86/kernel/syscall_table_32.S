@@ -349,4 +349,4 @@ ENTRY(sys_call_table)
 	.long sys_process_vm_readv
 	.long sys_process_vm_writev
 	.long sys_osync        /* vijayc: adding for OptFS */
-    .long sys_dsync
+	.long sys_dsync
